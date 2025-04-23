@@ -1,0 +1,296 @@
+---
+title: "Descriptive Report"
+subtitle: "`r params$comparison`"
+author: "Carlos S. Reyna-Blanco"
+license: "CC-BY 4.0"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    toc: true           # Enable table of contents
+    toc_float: true     # Make the table of contents float on the side
+    number_sections: true  # Optional: Number your sections
+    toc_depth: 4  
+params:
+  metadata:      NULL    # will be a data.frame of samples × columns
+  exist:         NULL    # will be a data.frame of peptides × samples
+  comparison:    NULL    # the name of this comparison
+  library_meta:  NULL    # will be a data.frame of the library metadata
+  custom_colors: NULL    # Colors to use for each group
+  timepoints:    NULL    # Only passed if data is longitudinal and a ind_timepoint.csv is given
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo  = FALSE, warning = FALSE, message = FALSE
+                      ,fig.width  = 5, fig.height = 4) # default figure dimensions (in inches)
+# if  prefer pixel dimensions, you can also set dpi and out.width:
+# dpi       = 96, out.width = "800px"
+
+# Load custom utility functions
+source(file.path("utils", "report_utils.R"))
+
+# read in the two per‐comparison files
+metadata  <- params$metadata
+exist <- params$exist
+comparison <- params$comparison
+lib_metadata_df <- params$library_meta
+custom_colors <- params$custom_colors
+```
+
+
+```{r}
+# include couns and diversity
+shannon_diversity <- vegan::diversity(t(exist), index = "shannon", base = 2)
+samples_stats <- data.frame(SampleName = names(shannon_diversity), enriched_peptides = colSums(exist), Shannon_diversity = shannon_diversity)
+metadata <- metadata %>% 
+  merge(samples_stats, by = "SampleName") #, all.x = TRUE)
+
+# find Sex and Age column names, case‑insensitive
+lc <- tolower(names(metadata))
+if (all(c("sex", "age") %in% lc)) {
+    # recover their true names
+  sex_col <- names(metadata)[lc == "sex"]
+  age_col <- names(metadata)[lc == "age"]
+
+  metadata <- metadata %>%
+    mutate(Age_group = cut(.data[[age_col]], breaks = seq(0, 95, by = 5), right  = FALSE),
+           Sex_ctg = case_when(tolower(.data[[sex_col]]) %in% c("female","male") ~ str_to_title(tolower(.data[[sex_col]])),
+                               .data[[sex_col]] %in% c(0,1) ~ factor(.data[[sex_col]],
+                                                                     levels = c(0,1), 
+                                                                     labels = c("Female","Male")),
+                               TRUE ~ as.character(.data[[sex_col]])) %>% 
+             factor(levels = c("Female","Male"))
+    )
+}
+
+# set group and merge features with group test labels
+group_cols <- c("group_test")
+features_target <- as.data.frame(t(exist)) %>%
+  tibble::rownames_to_column("SampleName")%>%
+  dplyr::left_join(metadata %>% select(any_of(c("SampleName", group_cols))), by = "SampleName")
+```
+
+# Enriched Peptides
+
+```{r}
+# Enriched peptides ----
+values_col <- "enriched_peptides"
+for (group_col in group_cols){
+  pairwise_comparisons <- combn(levels(factor(metadata[[group_col]])), 2, simplify = FALSE)
+  p <- plot_groups_boxplots(data = metadata, 
+                            group_col = group_col, 
+                            values_col = values_col,
+                            custom_colors = custom_colors, 
+                            pairwise_comparisons = pairwise_comparisons,
+                            label_axis = c("Group Test", "Counts of Enriched Peptides"))
+  print(p)
+}
+```
+
+
+# Shanon Diversity
+
+```{r}
+values_col <- "Shannon_diversity"
+for (group_col in group_cols){
+  pairwise_comparisons <- combn(levels(factor(metadata[[group_col]])), 2, simplify = FALSE)
+  p <- plot_groups_boxplots(data = metadata, 
+                       group_col = group_col, 
+                       values_col = values_col,
+                       custom_colors = custom_colors, 
+                       pairwise_comparisons = pairwise_comparisons,
+                       label_axis = c("Group Test", "Shannon Diversity"))
+  print(p)
+}
+```
+
+
+```{r, results='asis'}
+required <- c("Age_group", "Sex_ctg")
+show_sexAge <- all(required %in% colnames(metadata))
+```
+
+
+`r if (show_sexAge) "\n# Sex/Age Distribution"` 
+
+
+```{r}
+if (show_sexAge) {
+  sex_colors <- c("Female" = "#66C2A5", "Male" = "#FC8D62")
+  p <- plot_sex_age_distribution(data = metadata, 
+                                 group_col = group_cols, 
+                                 age_col = "Age_group", 
+                                 sex_col = "Sex_ctg", 
+                                 custom_colors = sex_colors)
+  print(p)
+} 
+```
+
+# Group Peptide Comparisons {.tabset}
+
+```{r}
+num_samples_per_group <- list()
+for (group_col in group_cols) {
+  num_samples_per_group[[group_col]] <- metadata %>%
+    filter(!is.na(!!sym(group_col))) %>%  # Filter out NA values in the group_test column
+    group_by(!!sym(group_col)) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    tibble::deframe()  # Convert the summarized result to a named vector (group -> count)
+}
+
+#- Prevalence Filtering: Applied on each group separately
+prevalence_threshold <- 5
+percentage_group_test_list <- list()
+for (group_col in group_cols) {
+  # Calculate percentage of presence for each peptide within each group
+  percentage_df <- features_target %>%
+    filter(!is.na(!!sym(group_col))) %>%  
+    tidyr::gather(key = "Peptide", value = "Presence", -SampleName, -all_of(group_cols)) %>%
+    group_by(!!sym(group_col), Peptide) %>%
+    summarise(Percent = mean(Presence) * 100, 
+              # Count = sum(Presence),           # Calculate count of presence
+              .groups = "drop") %>%
+    tidyr::spread(key = !!sym(group_col), value = Percent) %>%
+    left_join(lib_metadata_df %>%
+                tibble::rownames_to_column(var = "Peptide") %>%
+                dplyr::select(Peptide, Description, `full name`, Organism_complete_name), 
+              by = "Peptide")
+  
+  # Identify all percentage columns dynamically
+  percentage_columns <- setdiff(colnames(percentage_df), c("Peptide", "Description", "full name", "Organism_complete_name"))
+  
+  # Apply the prevalence filter on all identified percentage columns
+  percentage_df <- percentage_df %>%
+    filter(if_any(all_of(percentage_columns), ~ . >= prevalence_threshold)) #if_all
+  
+  # Add the count columns dynamically based on percentages and number of samples per group
+  for (column in percentage_columns) {
+    num_samples_group <- num_samples_per_group[[group_col]][[column]]  # Get the number of samples for the current group
+    percentage_df[[paste0(column, "_count")]] <- round(percentage_df[[column]] / 100 * num_samples_group, 0)
+  }
+  
+  # Save the dataframe to the list
+  percentage_group_test_list[[group_col]] <- percentage_df
+}
+
+comparison_group_tests <- automate_group_test_analysis(percentage_group_test_list, num_samples_per_group)
+```
+
+
+## Scatterplot
+
+```{r, results='asis'}
+#group <- names(comparison_group_tests)[1]
+all_plots <- lapply(comparison_group_tests[[group_col]], function(x) {
+  # Adjusting the plot margins to avoid hover text cropping
+  x$plot <- x$plot %>% layout(margin = list(l = 80, r = 80, b = 80, t = 80, pad = 0),
+                              height = 550,  # Define the plot height in pixels
+                              width = 550,
+                              hoverlabel = list(font = list(size = 10)),
+                              xaxis = list(#range = c(-2, 102),
+                                           scaleratio = 1,
+                                           scaleanchor = "y"
+                                           ),
+                              yaxis = list(#range = c(-2, 102), 
+                                           scaleratio = 1,
+                                           scaleanchor = "x"))
+  
+  htmltools::div(style = "margin-bottom: 150px;", x$plot)
+})
+htmltools::tagList(all_plots)
+```
+<div style="height: 50px;"></div>
+
+
+## Table
+
+```{r, results='asis'}
+DT::datatable(
+  head(comparison_group_tests[[group_col]][[comparison]]$comparison_df, 300),
+  options = list(
+    pageLength = 5,
+    scrollX = TRUE,  # enable horizontal scrolling
+    width = "100%"
+  ),
+  caption = "Preview of the top 300 Peptides ordered by delta ratio and pvals"
+)
+```
+<div style="height: 50px;"></div>
+
+
+
+# Multidimensional Scaling (MDS)
+
+```{r, results='asis'}
+p <- plot_mds(features_target, group_cols[1], 
+                     custom_colors,
+                     method = "jaccard",
+                     permutations = 999) 
+# Return plotly
+ggplotly(p, tooltip = "text") %>%
+  layout(margin = list(l = 80, r = 80, b = 80, t = 80, pad = -2),
+         height = 550,  # Define the plot height in pixels
+         width = 650,
+         hoverlabel = list(font = list(size = 10)))
+```
+<div style="height: 90px;"></div>
+
+
+```{r, results='asis'}
+show_timepoints <- !is.null(params$timepoints)
+if (show_timepoints) {
+  cat('\n\n<div style="height: 60px;"></div>\n\n')  # adds vertical space
+}
+
+```
+
+
+`r if (show_timepoints) "\n\n# Similarity {.tabset}"`  
+`r if (show_timepoints) "## Data in at least one timepoint"`  
+
+
+```{r, fig.height=7, fig.width=7}
+if (show_timepoints) {
+  timepoints_df <- params$timepoints
+  g1 <- levels(meta_i[[group_col]])[1]
+  g2 <- levels(meta_i[[group_col]])[2]
+  
+  plot_correlation(
+  metadata = timepoints_df,
+  phiseq_df = exist,           # assuming your function uses this as the data matrix
+  patient_id_col = "ind_id",
+  samples_t1_col = g1,
+  samples_t2_col = g2,
+  label_x = g1,
+  label_y = g2,
+  method = "pearson", 
+  require_both_timepoints = FALSE
+  )
+}
+```
+
+
+`r if (show_timepoints) "## Data in both timepoints"`  
+
+
+```{r, fig.height=6, fig.width=6}
+if (show_timepoints){
+  timepoints_df <- params$timepoints
+  g1 <- levels(meta_i[[group_col]])[1]
+  g2 <- levels(meta_i[[group_col]])[2]
+  
+  plot_correlation(
+  metadata = timepoints_df,
+  phiseq_df = exist,           # assuming your function uses this as the data matrix
+  patient_id_col = "ind_id",
+  samples_t1_col = g1,
+  samples_t2_col = g2,
+  label_x = g1,
+  label_y = g2,
+  method = "pearson", 
+  require_both_timepoints = TRUE
+  )
+}
+```
