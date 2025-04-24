@@ -237,6 +237,32 @@ ggplotly(p, tooltip = "text") %>%
 ```
 <div style="height: 90px;"></div>
 
+# Functional Subgroups in Antigen Library
+
+```{r}
+for (group_col in group_cols) {
+  comparisons <- names(comparison_group_tests[[group_col]])
+  
+  for (comp_name in comparisons) {
+    #comp_name <- comparisons[1]
+    groups <- strsplit(comp_name, "_vs_")[[1]]
+    group1 <- groups[1]
+    group2 <- groups[2]
+    comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df[
+      c("Peptide", "Organism_complete_name", group1, group2,
+        paste0(group1, "_count"), paste0(group2, "_count"), "ratio")
+    ]
+    
+    p <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, prevalence_threshold = 5)
+    
+    if (!is.null(p)) {
+      print(p)
+      # ggsave(paste0(group_col, "_", comp_name, "_subgroup_ratios.png"), p)
+    }
+  }
+}
+```
+
 
 ```{r, results='asis'}
 show_timepoints <- !is.null(params$timepoints)
@@ -294,3 +320,5 @@ if (show_timepoints){
   )
 }
 ```
+
+

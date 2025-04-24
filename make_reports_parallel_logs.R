@@ -82,7 +82,7 @@ template <- file.path(script_path, "template_phipseq.Rmd")
 # Set a palette of up to 12 distinct colors
 available_colors <- c(
   "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
-  "#66a61e", "bisque1", "#a6761d", "#666666",
+  "#66a61e", "bisque2", "#a6761d", "#666666",
   "#a6cee3", "#1f78b4", "#b2df8a", "salmon2")
 
 # Color map to remember assignments

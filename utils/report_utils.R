@@ -5,8 +5,25 @@ library("ggplot2")
 library("scales")
 library("ggsignif")
 library("plotly")
+library("nnet")
 
+# Global vars
 
+SUBGROUPS_TO_INCLUDE <- c('all', 
+                          'is_PNP', 'is_patho', 'is_probio', 'is_IgA',
+                          'is_bac_flagella',   'is_infect',
+                          'is_IEDB_or_cntrl')
+SUBGROUPS_TO_NAME <- c(
+  'all' = 'Complete library',
+  'is_PNP' = 'Metagenomics\nantigens',  'is_patho' = 'Pathogenic strains', 
+  'is_probio' = 'Probiotic strains',  'is_IgA' = 'Antibody-coated\nstrains', 
+  'is_bac_flagella' = 'Flagellins', 'is_infect' = 'Infectious\npathogens', 
+  'is_IEDB_or_cntrl' = 'IEDB/controls')
+
+SUBGROUPS_ORDER <- c('Complete library', 
+                     'Metagenomics\nantigens', 'Pathogenic strains', 'Probiotic strains',
+                     'Antibody-coated\nstrains',  'Flagellins', 'Infectious\npathogens',
+                     'IEDB/controls')
 ######################################################
 ####### plot  enrichment and diversity################
 ######################################################
@@ -494,6 +511,74 @@ plot_correlation <- function(metadata, phiseq_df,
     labs(
       x = paste0(label_x," Ig epitope repertoire ", "\n(individual ID)"),
       y = paste0(label_y," Ig epitope repertoire ", "\n(individual ID)")) 
+  
+  return(p)
+}
+
+###################################################
+############ ratios subgroups######################
+###################################################
+
+plot_ratios_by_subgroup <- function(comparison_df, group1, group2, subgroup_lib_df, prevalence_threshold = 5) {
+  # Join peptide subgroup flags
+  comparison_df <- comparison_df %>%
+    left_join(subgroup_lib_df, by = "Peptide")
+  
+  # Reshape to long format: one row per peptide–subgroup combo
+  long_ratios <- comparison_df %>%
+    tidyr::pivot_longer(cols = all_of(SUBGROUPS_TO_INCLUDE),
+                        names_to = "subgroup_flag",
+                        values_to = "belongs_to_group") %>%
+    dplyr::filter(belongs_to_group) %>%
+    mutate(subgroup = SUBGROUPS_TO_NAME[subgroup_flag],
+           subgroup = factor(subgroup, levels = SUBGROUPS_ORDER)) %>%
+    dplyr::filter(.data[[group1]] >= prevalence_threshold | .data[[group2]] >= prevalence_threshold)
+  
+  # Skip empty plots
+  if (nrow(long_ratios) < 3) {
+    warning("Not enough data for ", group1, " vs ", group2)
+    return(NULL)
+  }
+  
+  # Get pairwise subgroup comparisons
+  subgroup_labels <- levels(long_ratios$subgroup)
+  pairwise_combos <- combn(subgroup_labels, 2, simplify = FALSE)
+  
+  # Get significant pairs
+  sig_comparisons <- ggpubr::compare_means(
+    formula = ratio ~ subgroup,
+    data = long_ratios,
+    method = "wilcox.test",
+    comparisons = pairwise_combos,
+    p.adjust.method = "BH"
+  ) %>% filter(p.adj < 0.05)
+  
+  # Format for stat_compare_means
+  sig_pairs <- lapply(seq_len(nrow(sig_comparisons)), function(i) {
+    c(sig_comparisons$group1[i], sig_comparisons$group2[i])
+  })
+  
+  # Plot
+  p <- ggplot(long_ratios, aes(x = subgroup, y = ratio, fill = subgroup)) +
+    geom_boxplot(outlier.shape = 21, outlier.size = 1, width = 0.6) +
+    scale_fill_brewer(palette = "Paired") +
+    ggpubr::stat_compare_means(
+      method = "wilcox.test",
+      comparisons = sig_pairs,
+      p.adjust.method = "BH",
+      label = "p.signif",
+      hide.ns = TRUE,
+      size = 4
+    ) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "none"
+    ) +
+    labs(
+      x = "Subgroups of the antigen library",
+      y = paste("log-ratio of antibody responses\nin", group1, "and", group2, sept=" ")
+    )
   
   return(p)
 }
