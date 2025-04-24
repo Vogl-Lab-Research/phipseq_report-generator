@@ -1,0 +1,5 @@
+Rendering Log
+==============
+[2025-04-24 16:22:11.614727] ❌ Error rendering mother_P12_vs_mother_P28: pandoc version 1.12.3 or higher is required and was not found (see the help page ?rmarkdown::pandoc_available).
+[2025-04-24 16:22:28.518404] ❌ Error rendering mother_P28_vs_mother_B: pandoc version 1.12.3 or higher is required and was not found (see the help page ?rmarkdown::pandoc_available).
+[2025-04-24 16:22:49.066068] ❌ Error rendering mother_P12_vs_mother_B: pandoc version 1.12.3 or higher is required and was not found (see the help page ?rmarkdown::pandoc_available).

@@ -1,8 +1,25 @@
 #!/usr/bin/env Rscript
-library(yaml)
+# ✅ Required libraries for make_reports_parallel.R and report_util.R
+required_packages <- c(
+  "tidyverse", "rmarkdown", "furrr", "progressr", "future", "tictoc", "readr", "yaml",
+  "stats", "multcomp", "dplyr", "ggplot2", "scales", "ggsignif", "plotly", "nnet"
+)
 
+# Install any missing packages
+missing_packages <- required_packages[!required_packages %in% installed.packages()[, "Package"]]
+
+if (length(missing_packages) > 0) {
+  message("📦 Installing missing packages: ", paste(missing_packages, collapse = ", "))
+  install.packages(missing_packages)
+}
+
+# Load packages silently
+invisible(lapply(required_packages, function(pkg) {
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}))
+
+ # read arguments
 args <- commandArgs(trailingOnly = TRUE)
-
 if (length(args) == 0 || "--help" %in% args) {
   cat("
 Usage:
@@ -16,7 +33,6 @@ Example config.yaml:
 comparisons_file: Metadata/comparisons.csv
 samples_file: Metadata/sorted_LLNEXT_samples_binary.csv
 exist_file: Data/exist.csv
-library_meta: Metadata/all_libraries_with_important_info.rds
 timepoints_file: Metadata/LLNext_ind_timepoints.csv Optional
 extra_cols: [Sex, Age] Optional
 output_dir: reports Default
@@ -34,15 +50,14 @@ config <- yaml::read_yaml(config_path)
 cmp_file        <- config$comparisons_file
 samples_file    <- config$samples_file
 exist_file      <- config$exist_file
-library_meta    <- config$library_meta
 timepoints_file <- config$timepoints_file %||% NULL  # allow missing
 extra_cols      <- config$extra_cols %||% character()  # allow missing
 output_dir      <- config$output_dir %||% "reports"
 
 
 # Validate required files
-required <- list(cmp_file, samples_file, exist_file, library_meta)
-names(required) <- c("comparisons_file", "samples_file", "exist_file", "library_meta")
+required <- list(cmp_file, samples_file, exist_file)
+names(required) <- c("comparisons_file", "samples_file", "exist_file") 
 
 missing <- names(required)[!file.exists(unlist(required))]
 
@@ -55,15 +70,6 @@ if (!is.null(timepoints_file) && !file.exists(timepoints_file)) {
   stop("❌ Timepoints file does not exist: ", timepoints_file)
 }
 
-# Load libraries to parse, filter and render data
-library(tidyverse)
-library(rmarkdown)
-library(furrr)
-library(progressr)
-library(future)
-library(tictoc)
-library(readr)
-
 
 # read inputs
 comparisons <- read_csv(cmp_file)
@@ -71,13 +77,16 @@ samples     <- read_csv(samples_file) %>%
   rename_with(~ "SampleName", .cols = 1)
 exist       <- read.csv(exist_file, header = TRUE, row.names = 1, check.names = FALSE,
                         stringsAsFactors = FALSE)
-lib_metadata_df <- readRDS(library_meta)
 extra_syms <- syms(extra_cols)
 
 # Get the directory of this script
 args_full <- commandArgs(trailingOnly = FALSE)
 script_path <- dirname(normalizePath(sub("--file=", "", args_full[grep("--file=", args_full)])))
 template <- file.path(script_path, "template_phipseq.Rmd")
+library_meta <- file.path(script_path, "all_libraries_with_important_info.rds")
+lib_metadata_df <- readRDS(library_meta)
+
+
 
 # Set a palette of up to 12 distinct colors
 available_colors <- c(
@@ -92,18 +101,16 @@ group_color_map <- list()
 # Use all available cores (or adjust to your needs)
 plan(multisession, workers = 4)  # #plan(multisession, workers = parallel::detectCores())  # use multicore on Unix, or multisession for cross-platform
 
-
 # Create output directory if needed
 is_absolute_path <- function(path) grepl("^(/|[A-Za-z]:)", path)
 output_dir <- if (is_absolute_path(output_dir)) output_dir else file.path(getwd(), output_dir)
 if (!dir.exists(output_dir)) dir.create(output_dir)
 
-
 # Create a log file and initialize output tracking
 log_file <- "rendering_log.txt"
 summary_file <- "render_summary.csv"
 writeLines("Rendering Log\n==============", con = log_file)
-  
+
 # Run rendering in parallel and track summary
 results <- future_pmap_dfr(
   list(name = comparisons[[1]], g1 = comparisons[[2]], g2 = comparisons[[3]]),

@@ -1,9 +1,7 @@
 # config.yaml
-comparisons_file: Metadata/comparisons.csv2
-samples_file: Metadata/sorted_LLNEXT_samples_binary.csv
-exist_file: Data/exist.csv
-library_meta: Metadata/all_libraries_with_important_info.rds
-#template_file: template_phipseq.Rmd
-timepoints_file: Metadata/LLNext_ind_timepoints.csv  # optional
-#extra_cols: ["Sex", "Age"]                            # optional
-output_dir: reports #default reports
+comparisons_file: unit_test/Metadata/comparisons.csv
+samples_file: unit_test/Metadata/samples_meta.csv
+exist_file: unit_test/Data/exist.csv
+timepoints_file: unit_test/Metadata/samples2ind_timepoints.csv  # optional
+extra_cols: ["Sex", "Age"]                            # optional
+output_dir: unit_test/reports #default reports
