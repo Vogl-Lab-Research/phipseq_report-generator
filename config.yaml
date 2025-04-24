@@ -1,7 +1,0 @@
-# config.yaml
-comparisons_file: unit_test/Metadata/comparisons.csv
-samples_file: unit_test/Metadata/samples_meta.csv
-exist_file: unit_test/Data/exist.csv
-timepoints_file: unit_test/Metadata/samples2ind_timepoints.csv  # optional
-extra_cols: ["Sex", "Age"]                            # optional
-output_dir: unit_test/reports #default reports
