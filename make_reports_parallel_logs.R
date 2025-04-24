@@ -105,6 +105,8 @@ plan(multisession, workers = 4)  # #plan(multisession, workers = parallel::detec
 is_absolute_path <- function(path) grepl("^(/|[A-Za-z]:)", path)
 output_dir <- if (is_absolute_path(output_dir)) output_dir else file.path(getwd(), output_dir)
 if (!dir.exists(output_dir)) dir.create(output_dir)
+out_tables <- file.path(output_dir, "Tables")
+if (!dir.exists(out_tables)) dir.create(out_tables)
 
 # Create a log file and initialize output tracking
 log_file <- "rendering_log.txt"
@@ -174,7 +176,8 @@ results <- future_pmap_dfr(
           comparison    = name,
           library_meta  = lib_metadata_df,
           custom_colors = custom_colors,
-          timepoints    = timepoints_df
+          timepoints    = timepoints_df,
+          out_tables    = out_tables
         ),
         envir = new.env()
       )

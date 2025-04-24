@@ -19,6 +19,7 @@ params:
   library_meta:  NULL    # will be a data.frame of the library metadata
   custom_colors: NULL    # Colors to use for each group
   timepoints:    NULL    # Only passed if data is longitudinal and a ind_timepoint.csv is given
+  out_tables:    NULL    # where to save the tables
 ---
 
 
@@ -37,6 +38,7 @@ exist <- params$exist
 comparison <- params$comparison
 lib_metadata_df <- params$library_meta
 custom_colors <- params$custom_colors
+out_dir <- params$out_tables
 
 actual_subgroup_columns <- setdiff(names(SUBGROUPS_TO_NAME), "all")
 subgroup_lib_df <-  lib_metadata_df %>%
@@ -260,20 +262,70 @@ if (show_timepoints) {
 ```
 
 
-`r if (show_timepoints) "\n\n# Similarity {.tabset}"`  
+`r if (show_timepoints) "\n\n# Longitudinal Similarity {.tabset}"`  
 `r if (show_timepoints) "## Data in at least one timepoint"`  
 
 
-```{r, fig.height=7, fig.width=7}
+```{r, fig.height=9, fig.width=9}
 if (show_timepoints) {
-  timepoints_df <- params$timepoints
-  g1 <- levels(meta_i[[group_col]])[1]
-  g2 <- levels(meta_i[[group_col]])[2]
+timepoints_df <- params$timepoints
+g1 <- levels(factor(metadata[[group_col]]))[1]
+g2 <- levels(factor(metadata[[group_col]]))[2]
   
-  plot_correlation(
-  metadata = timepoints_df,
+plot_correlation(
   phiseq_df = exist,           # assuming your function uses this as the data matrix
-  patient_id_col = "ind_id",
+  metadata = timepoints_df,
+  ind_id_col = "ind_id",
+  samples_t1_col = g1,
+  samples_t2_col = g2,
+  label_x = g1,
+  label_y = g2,
+  method = "pearson", 
+  require_both_timepoints = FALSE
+  )
+}
+```
+
+
+`r if (show_timepoints) "## Data in both timepoints"`  
+
+
+```{r, fig.height=9, fig.width=9}
+if (show_timepoints){
+timepoints_df <- params$timepoints
+g1 <- levels(factor(metadata[[group_col]]))[1]
+g2 <- levels(factor(metadata[[group_col]]))[2]
+  
+plot_correlation(
+  phiseq_df = exist,           # assuming your function uses this as the data matrix
+  metadata = timepoints_df,
+  ind_id_col = "ind_id",
+  samples_t1_col = g1,
+  samples_t2_col = g2,
+  label_x = g1,
+  label_y = g2,
+  method = "pearson", 
+  require_both_timepoints = TRUE
+  )
+}
+```
+
+
+`r if (show_timepoints) "\n\n#  Random and Matched Pairs of Samples Similarity Distribution - {.tabset}"`  
+`r if (show_timepoints) "## Data in at least one timepoint"`
+
+
+```{r, fig.height=6, fig.width=6}
+if (show_timepoints){
+timepoints_df <- params$timepoints
+g1 <- levels(factor(metadata[[group_col]]))[1]
+g2 <- levels(factor(metadata[[group_col]]))[2]
+
+    
+plot_correlation_distribution(
+  phiseq_df = exist,           # assuming your function uses this as the data matrix
+  metadata = timepoints_df,
+  ind_id_col = "ind_id",
   samples_t1_col = g1,
   samples_t2_col = g2,
   label_x = g1,
@@ -290,14 +342,14 @@ if (show_timepoints) {
 
 ```{r, fig.height=6, fig.width=6}
 if (show_timepoints){
-  timepoints_df <- params$timepoints
-  g1 <- levels(meta_i[[group_col]])[1]
-  g2 <- levels(meta_i[[group_col]])[2]
-  
-  plot_correlation(
+timepoints_df <- params$timepoints
+g1 <- levels(factor(metadata[[group_col]]))[1]
+g2 <- levels(factor(metadata[[group_col]]))[2]
+ 
+plot_correlation_distribution(
+  phiseq_df = exist,
   metadata = timepoints_df,
-  phiseq_df = exist,           # assuming your function uses this as the data matrix
-  patient_id_col = "ind_id",
+  ind_id_col = "ind_id",
   samples_t1_col = g1,
   samples_t2_col = g2,
   label_x = g1,
@@ -309,10 +361,9 @@ if (show_timepoints){
 ```
 
 
-
 # Functional Subgroups in Antigen Library
 
-```{r}
+```{r, fig.height=5, fig.width=6}
 for (group_col in group_cols) {
   comparisons <- names(comparison_group_tests[[group_col]])
   
@@ -325,6 +376,9 @@ for (group_col in group_cols) {
       c("Peptide", "Organism_complete_name", group1, group2,
         paste0(group1, "_count"), paste0(group2, "_count"), "ratio")
     ]
+    
+    output_table <- paste0(out_dir,"/table_peptidesSignificance_",group_col,"_",comp_name,".csv")
+    readr::write_csv(comparison_group_tests[[group_col]][[comp_name]]$comparison_df, output_table)
     
     p <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, prevalence_threshold = 5)
     

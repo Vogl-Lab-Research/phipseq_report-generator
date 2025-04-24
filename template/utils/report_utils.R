@@ -385,13 +385,13 @@ plot_mds <- function(features_target, group_col,
 ############Similarity pot##########
 ####################################
 compute_patient_correlation <- function(data_matrix, metadata, 
-                                        patient_id_col = "ind_id", 
+                                        ind_id_col = "ind_id", 
                                         samples_t1_col = "SampleName_t1", 
                                         samples_t2_col = "SampleName_t2",
                                         method = "pearson") {
   
   # Order the metadata by patient_id to align pairs consistently.
-  metadata <- metadata[order(metadata[[patient_id_col]]), ]
+  metadata <- metadata[order(metadata[[ind_id_col]]), ]
   
   # Extract baseline and t2 sample names from metadata as character vectors.
   t1_samples <- as.character(metadata[[samples_t1_col]])
@@ -433,8 +433,8 @@ compute_patient_correlation <- function(data_matrix, metadata,
   return(corr_mat)
 }
 
-plot_correlation <- function(metadata, phiseq_df,
-                             patient_id_col = "ind_id", samples_t1_col = "SampleName_t1", samples_t2_col = "SampleName_t2",
+plot_correlation <- function(phiseq_df, metadata,
+                             ind_id_col = "ind_id", samples_t1_col = "SampleName_t1", samples_t2_col = "SampleName_t2",
                              label_x = "t1", label_y = "t2",
                              sort_by_status = FALSE, pre_status_col = "status_t1", post_status_col = "status_t2",
                              method = "pearson", require_both_timepoints = FALSE) {
@@ -456,7 +456,7 @@ plot_correlation <- function(metadata, phiseq_df,
   corr_matrix <- compute_patient_correlation(
     data_matrix = t(phiseq_df),
     metadata = metadata,
-    patient_id_col = patient_id_col,
+    ind_id_col = ind_id_col,
     samples_t1_col = samples_t1_col,
     samples_t2_col = samples_t2_col,
     method = method
@@ -464,12 +464,12 @@ plot_correlation <- function(metadata, phiseq_df,
   
   if (sort_by_status == TRUE){
     metadata <- metadata %>% 
-      arrange((!!sym(pre_status_col)), (!!sym(post_status_col)), (!!sym(patient_id_col))) %>% 
+      arrange((!!sym(pre_status_col)), (!!sym(post_status_col)), (!!sym(ind_id_col))) %>% 
       slice(rev(row_number()))
   }
   
   # 2. Extract the sample names in the desired order.
-  ordered_ids <- metadata[[patient_id_col]]
+  ordered_ids <- metadata[[ind_id_col]]
   
   
   # Format for plotting
@@ -480,10 +480,10 @@ plot_correlation <- function(metadata, phiseq_df,
   
   if (sort_by_status == TRUE){
     cor_df <- cor_df %>%
-      left_join(metadata %>%  select(patient_id = !!sym(patient_id_col), pre_status = !!sym(pre_status_col)),
-                by = c("Var1" = patient_id_col)) %>%
-      left_join(metadata %>% select(patient_id = !!sym(patient_id_col), post_status = !!sym(post_status_col)),
-                by = c("Var2" = patient_id_col))
+      left_join(metadata %>%  select(patient_id = !!sym(ind_id_col), pre_status = !!sym(pre_status_col)),
+                by = c("Var1" = ind_id_col)) %>%
+      left_join(metadata %>% select(patient_id = !!sym(ind_id_col), post_status = !!sym(post_status_col)),
+                by = c("Var2" = ind_id_col))
   }
   
   cor_df$Var1 <- factor(cor_df$Var1, levels = ordered_ids)
@@ -514,6 +514,97 @@ plot_correlation <- function(metadata, phiseq_df,
   
   return(p)
 }
+
+
+plot_correlation_distribution <- function(phiseq_df, metadata,
+                                          ind_id_col = "ind_id",
+                                          samples_t1_col = "SampleName_t1",
+                                          samples_t2_col = "SampleName_t2",
+                                          label_x = "t1", label_y = "t2",
+                                          method = "pearson",
+                                          bins = 20,
+                                          require_both_timepoints = FALSE) {
+  # Optionally filter metadata to only include individuals with both timepoints
+  use_fallback <- FALSE
+  if (require_both_timepoints) {
+    tmp_meta <- metadata %>%
+      filter(g1_exists & g2_exists)
+    if (nrow(tmp_meta) == 0) {
+      print("No individuals with both timepoints. Falling back to those with either timepoint.")
+      tmp_meta <- metadata
+      use_fallback <- TRUE
+    }
+    metadata <- tmp_meta
+  }
+  
+  # Compute correlation matrix for this subgroup
+  corr_matrix <- compute_patient_correlation(
+    data_matrix = t(phiseq_df),
+    metadata = metadata,
+    ind_id_col = ind_id_col,
+    samples_t1_col = samples_t1_col,
+    samples_t2_col = samples_t2_col,
+    method = method
+  )
+
+  
+  # 2. Extract the sample names in the desired order.
+  ordered_ids <- metadata[[ind_id_col]]
+  
+  # Format for plotting
+  rownames(corr_matrix) <- as.character(ordered_ids)
+  colnames(corr_matrix) <- as.character(ordered_ids)
+  
+  # Melt to long format
+
+  #cor_df <-  reshape2::melt(corr_matrix, varnames = c("sample1", "sample2"), value.name = "corr") %>%
+   # mutate(pair_type = ifelse(sample1 == sample2, "matched", "random"))
+  
+  cor_df <- reshape2::melt(corr_matrix) %>% 
+    mutate(pair_type = ifelse(Var1 == Var2, "matched", "random"))
+  
+  if (use_fallback) {
+    cor_df <- cor_df %>% filter(!is.na(value))
+  }
+  
+  # Separate matched and random
+  matched_df <- cor_df %>% filter(pair_type == "matched")
+  random_df  <- cor_df %>% filter(pair_type == "random")
+  
+  # Bin histograms separately
+  matched_hist <- ggplot(matched_df, aes(x = value)) + geom_histogram(bins = bins)
+  matched_data <- ggplot_build(matched_hist)$data[[1]]
+  
+  random_hist <- ggplot(random_df, aes(x = value)) + geom_histogram(bins = bins)
+  random_data <- ggplot_build(random_hist)$data[[1]]
+  
+  # Scale matched to match random
+  random_ymax  <- max(random_data$y)
+  matched_ymax <- max(matched_data$y)
+  scale_factor <- random_ymax / matched_ymax
+  
+  matched_data <- matched_data %>%
+    mutate(y_scaled = y * scale_factor)
+  
+  # Final combined plot
+  p <- ggplot() +
+    geom_col(data = random_data, aes(x = x, y = y),
+             width = random_data$width, fill = "palegreen4", alpha = 0.4) +
+    geom_col(data = matched_data, aes(x = x, y = y_scaled),
+             width = matched_data$width, fill = "dodgerblue3", alpha = 0.4) +
+    scale_y_continuous(
+      name = "Random Pair Count",
+      sec.axis = sec_axis(trans = ~ . / scale_factor, name = "Matched Pair Count")
+    ) +
+    scale_x_continuous(name = paste0("Pearson correlation of\n", label_x, " vs ", label_y)) +
+    theme_bw() +
+    theme(panel.grid = element_blank())
+  
+  return(p)
+}
+
+
+
 
 ###################################################
 ############ ratios subgroups######################
