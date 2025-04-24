@@ -25,5 +25,4 @@ output_dir: reports  # Default directory for saving reports [relative or full pa
 
 # Input Files format
 
-Look at the unit_test examples simulated data as a guidance of format for the required files
-
+Look at the mock_files folder for examples of simulated data as a guidance of format for the required files
