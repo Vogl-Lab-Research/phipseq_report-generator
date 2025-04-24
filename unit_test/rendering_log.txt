@@ -1,5 +1,0 @@
-Rendering Log
-==============
-[2025-04-24 17:50:00.764358] ❌ Error rendering mother_P12_vs_mother_P28: In argument: `Sex_ctg = `%>%`(...)`.
-[2025-04-24 17:50:23.940579] ❌ Error rendering mother_P28_vs_mother_B: In argument: `Sex_ctg = `%>%`(...)`.
-[2025-04-24 17:50:50.216332] ❌ Error rendering mother_P12_vs_mother_B: In argument: `Sex_ctg = `%>%`(...)`.
