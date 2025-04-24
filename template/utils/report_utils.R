@@ -524,7 +524,6 @@ plot_correlation_distribution <- function(phiseq_df, metadata,
                                           method = "pearson",
                                           bins = 20,
                                           require_both_timepoints = FALSE) {
-  # Optionally filter metadata to only include individuals with both timepoints
   use_fallback <- FALSE
   if (require_both_timepoints) {
     tmp_meta <- metadata %>%
@@ -537,7 +536,6 @@ plot_correlation_distribution <- function(phiseq_df, metadata,
     metadata <- tmp_meta
   }
   
-  # Compute correlation matrix for this subgroup
   corr_matrix <- compute_patient_correlation(
     data_matrix = t(phiseq_df),
     metadata = metadata,
@@ -546,22 +544,14 @@ plot_correlation_distribution <- function(phiseq_df, metadata,
     samples_t2_col = samples_t2_col,
     method = method
   )
-
   
-  # 2. Extract the sample names in the desired order.
   ordered_ids <- metadata[[ind_id_col]]
-  
-  # Format for plotting
   rownames(corr_matrix) <- as.character(ordered_ids)
   colnames(corr_matrix) <- as.character(ordered_ids)
   
-  # Melt to long format
-
-  #cor_df <-  reshape2::melt(corr_matrix, varnames = c("sample1", "sample2"), value.name = "corr") %>%
-   # mutate(pair_type = ifelse(sample1 == sample2, "matched", "random"))
-  
-  cor_df <- reshape2::melt(corr_matrix) %>% 
+  cor_df <- reshape2::melt(corr_matrix) %>%
     mutate(pair_type = ifelse(Var1 == Var2, "matched", "random"))
+  
   
   if (use_fallback) {
     cor_df <- cor_df %>% filter(!is.na(value))
@@ -571,38 +561,52 @@ plot_correlation_distribution <- function(phiseq_df, metadata,
   matched_df <- cor_df %>% filter(pair_type == "matched")
   random_df  <- cor_df %>% filter(pair_type == "random")
   
-  # Bin histograms separately
-  matched_hist <- ggplot(matched_df, aes(x = value)) + geom_histogram(bins = bins)
-  matched_data <- ggplot_build(matched_hist)$data[[1]]
+  # Initialize an empty plot
+  p <- ggplot()
   
-  random_hist <- ggplot(random_df, aes(x = value)) + geom_histogram(bins = bins)
-  random_data <- ggplot_build(random_hist)$data[[1]]
+  has_matched <- nrow(matched_df) > 0
+  has_random  <- nrow(random_df) > 0
   
-  # Scale matched to match random
-  random_ymax  <- max(random_data$y)
-  matched_ymax <- max(matched_data$y)
-  scale_factor <- random_ymax / matched_ymax
+  if (has_random) {
+    random_hist <- ggplot(random_df, aes(x = value)) + geom_histogram(bins = bins)
+    random_data <- ggplot_build(random_hist)$data[[1]]
+    p <- p + geom_col(data = random_data, aes(x = x, y = y),
+                      width = random_data$width, fill = "palegreen4", alpha = 0.4)
+  }
   
-  matched_data <- matched_data %>%
-    mutate(y_scaled = y * scale_factor)
+  if (has_matched) {
+    matched_hist <- ggplot(matched_df, aes(x = value)) + geom_histogram(bins = bins)
+    matched_data <- ggplot_build(matched_hist)$data[[1]]
+    
+    # Fallback to default if no matched histogram data was produced
+    has_matched_hist <- !is.null(matched_data) && nrow(matched_data) > 0 && max(matched_data$y) > 0
+    
+    if (has_random && has_matched_hist) {
+      scale_factor <- max(random_data$y) / max(matched_data$y)
+      matched_data <- matched_data %>%
+        mutate(y_scaled = y * scale_factor)
+      
+      p <- p + geom_col(data = matched_data, aes(x = x, y = y_scaled),
+                        width = matched_data$width, fill = "dodgerblue3", alpha = 0.4) +
+        scale_y_continuous(
+          name = "Random Pair Count",
+          sec.axis = sec_axis(~ . / scale_factor, name = "Matched Pair Count")
+        )
+    } else if (has_matched_hist) {
+      # Only matched → plot as primary y-axis
+      p <- p + geom_col(data = matched_data, aes(x = x, y = y),
+                        width = matched_data$width, fill = "dodgerblue3", alpha = 0.4) +
+        scale_y_continuous(name = "Matched Pair Count")
+    }
+  }
   
-  # Final combined plot
-  p <- ggplot() +
-    geom_col(data = random_data, aes(x = x, y = y),
-             width = random_data$width, fill = "palegreen4", alpha = 0.4) +
-    geom_col(data = matched_data, aes(x = x, y = y_scaled),
-             width = matched_data$width, fill = "dodgerblue3", alpha = 0.4) +
-    scale_y_continuous(
-      name = "Random Pair Count",
-      sec.axis = sec_axis(trans = ~ . / scale_factor, name = "Matched Pair Count")
-    ) +
+  p <- p +
     scale_x_continuous(name = paste0("Pearson correlation of\n", label_x, " vs ", label_y)) +
     theme_bw() +
     theme(panel.grid = element_blank())
   
   return(p)
 }
-
 
 
 
