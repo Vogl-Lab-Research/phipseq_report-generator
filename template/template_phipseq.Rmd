@@ -40,6 +40,12 @@ lib_metadata_df <- params$library_meta
 custom_colors <- params$custom_colors
 out_dir <- params$out_tables
 
+# metadata      = meta_i
+# exist         = exist_i
+# comparison    = name
+# lib_metadata_df  = lib_metadata_df
+# custom_colors = custom_colors
+          
 actual_subgroup_columns <- setdiff(names(SUBGROUPS_TO_NAME), "all")
 subgroup_lib_df <-  lib_metadata_df %>%
   tibble::rownames_to_column(var = "Peptide") %>%
@@ -70,7 +76,7 @@ if (all(c("sex", "age") %in% lc)) {
   age_col <- names(metadata)[lc == "age"]
 
   metadata <- metadata %>%
-    mutate(Age_group = cut(.data[[age_col]], breaks = seq(0, 95, by = 5), right  = FALSE),
+    mutate(Age_group = cut(.data[[age_col]], breaks = seq(0, 120, by = 5), right  = FALSE),
            Sex_ctg = case_when(tolower(.data[[sex_col]]) %in% c("female","male") ~ str_to_title(tolower(.data[[sex_col]])),
                                .data[[sex_col]] %in% c(0,1) ~ factor(.data[[sex_col]],
                                                                      levels = c(0,1), 
@@ -311,7 +317,7 @@ plot_correlation(
 ```
 
 
-`r if (show_timepoints) "\n\n#  Random and Matched Pairs of Samples Similarity Distribution - {.tabset}"`  
+`r if (show_timepoints) "\n\n#  Random and Matched Pairs of Samples Similarity Distribution {.tabset}"`  
 `r if (show_timepoints) "## Data in at least one timepoint"`
 
 

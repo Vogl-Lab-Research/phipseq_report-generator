@@ -1,8 +1,8 @@
 #!/usr/bin/env Rscript
-# ✅ Required libraries for make_reports_parallel.R and report_util.R
+#✅ Required libraries for make_reports_parallel.R and report_util.R
 required_packages <- c(
-  "tidyverse", "rmarkdown", "furrr", "progressr", "future", "tictoc", "readr", "yaml",
-  "stats", "multcomp", "dplyr", "ggplot2", "scales", "ggsignif", "plotly", "nnet"
+  "tidyverse", "rmarkdown", "furrr", "future", "tictoc", "yaml"
+  #,"stats", "multcomp", "dplyr", "ggplot2", "scales", "ggsignif", "plotly", "nnet"
 )
 
 # Install any missing packages
@@ -18,12 +18,13 @@ invisible(lapply(required_packages, function(pkg) {
   suppressPackageStartupMessages(library(pkg, character.only = TRUE))
 }))
 
+
  # read arguments
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) == 0 || "--help" %in% args) {
   cat("
 Usage:
-  Rscript make_reports.R <config.yaml>
+  Rscript make_reports_parallel_logs.R <config.yaml>
 
 Arguments:
   config.yaml   A YAML file containing all required and optional input paths and parameters.
@@ -47,12 +48,12 @@ if (!file.exists(config_path)) stop("❌ Config file not found: ", config_path)
 config <- yaml::read_yaml(config_path)
 
 # Extract values from config
-cmp_file        <- config$comparisons_file
-samples_file    <- config$samples_file
-exist_file      <- config$exist_file
+cmp_file        <- config$comparisons_file #"../MCI-Dementia/Metadata/MCI_Dementia_comparison_v0507.csv"
+samples_file    <- config$samples_file #"../MCI-Dementia/Metadata/MCI_Dementia_cohort_data_v0507.csv"
+exist_file      <- config$exist_file #"../MCI-Dementia/Data/exist.csv"
 timepoints_file <- config$timepoints_file %||% NULL  # allow missing
-extra_cols      <- config$extra_cols %||% character()  # allow missing
-output_dir      <- config$output_dir %||% "reports"
+extra_cols      <- config$extra_cols %||% character()  # allow missing  #c("sex", "age")
+output_dir      <- config$output_dir %||% "reports" #"../MCI-Dementia/reports"
 
 
 # Validate required files
@@ -71,35 +72,57 @@ if (!is.null(timepoints_file) && !file.exists(timepoints_file)) {
 }
 
 
+auto_read_csv <- function(path) {
+  # read just the header line
+  hdr <- readLines(path, n = 1)
+  
+  # count delimiters
+  n_comma <- str_count(hdr, ",")
+  n_semi  <- str_count(hdr, ";")
+  
+  # choose reader
+  if (n_semi > n_comma) {
+    message("Detected semicolon-delimited → using read_csv2()")
+    df <- read_csv2(path)
+  } else {
+    message("Detected comma-delimited → using read_csv()")
+    df <- read_csv(path)
+  }
+  df
+}
+
 # read inputs
 comparisons <- read_csv(cmp_file)
-samples     <- read_csv(samples_file) %>%
-  rename_with(~ "SampleName", .cols = 1)
-exist       <- read.csv(exist_file, header = TRUE, row.names = 1, check.names = FALSE,
+
+samples <- auto_read_csv(samples_file) %>%
+  rename(SampleName = 1)
+
+exist <- read.csv(exist_file, header = TRUE, row.names = 1, check.names = FALSE,
                         stringsAsFactors = FALSE)
 extra_syms <- syms(extra_cols)
 
 # Get the directory of this script
 args_full <- commandArgs(trailingOnly = FALSE)
 script_path <- dirname(normalizePath(sub("--file=", "", args_full[grep("--file=", args_full)])))
-template <- file.path(script_path, "template/template_phipseq.Rmd")
-library_meta <- file.path(script_path, "library_meta/all_libraries_with_important_info.rds")
+template <- file.path(script_path, "template/template_phipseq.Rmd") #"template/template_phipseq.Rmd" 
+library_meta <- file.path(script_path, "library_meta/all_libraries_with_important_info.rds") #"library_meta/all_libraries_with_important_info.rds" 
 lib_metadata_df <- readRDS(library_meta)
-
 
 
 # Set a palette of up to 12 distinct colors
 available_colors <- c(
   "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
-  "#66a61e", "bisque2", "#a6761d", "#666666",
-  "#a6cee3", "#1f78b4", "#b2df8a", "salmon2")
+  "#66a61e", "bisque1", "#a6761d", "#666666",
+  "#a6cee3", "#1f78b4", "#b2df8a", "salmon2",
+  "gold1", "pink", "violet", "firebrick",
+  "chartreuse2", "darkblue", "darkgreen", "darkorchid4")
 
 # Color map to remember assignments
 group_color_map <- list()
 
 
 # Use all available cores (or adjust to your needs)
-plan(multisession, workers = 4)  # #plan(multisession, workers = parallel::detectCores())  # use multicore on Unix, or multisession for cross-platform
+future::plan(future::multisession, workers = 4)  # #plan(multisession, workers = parallel::detectCores())  # use multicore on Unix, or multisession for cross-platform
 
 # Create output directory if needed
 is_absolute_path <- function(path) grepl("^(/|[A-Za-z]:)", path)
@@ -114,11 +137,11 @@ summary_file <- "render_summary.csv"
 writeLines("Rendering Log\n==============", con = log_file)
 
 # Run rendering in parallel and track summary
-results <- future_pmap_dfr(
+results <- furrr::future_pmap_dfr(
   list(name = comparisons[[1]], g1 = comparisons[[2]], g2 = comparisons[[3]]),
   function(name, g1, g2) {
     message(sprintf("Rendering %s...", name))
-    tic(name)
+    tictoc::tic(name)
     
     
     tryCatch({
@@ -129,34 +152,40 @@ results <- future_pmap_dfr(
           used_colors <- unlist(group_color_map)
           available <- setdiff(available_colors, used_colors)
           if (length(available) == 0) {
-            warning("Ran out of distinct colors, reusing colors!")
+            warning("Ran out of distinct colors, reusing colors!!! Add more :)")
             available <- available_colors
           }
           group_color_map[[g]] <- available[1]
         }
       }
       custom_colors <- setNames(unlist(group_color_map[groups]), groups)
-        
-      # Metadata filtering
+      
+      # pull out just those samples that belong to g1 or g2
       meta_i <- samples %>%
-        filter(.data[[g1]] == 1 | .data[[g2]] == 1) %>%
-        transmute(SampleName, group_test = if_else(.data[[g1]] == 1, g1, g2), !!!extra_syms) %>%
-        mutate(group_test = factor(group_test, levels = c(g1, g2)))
-        
+        dplyr::filter( .data[[g1]] == 1 | .data[[g2]] == 1 ) %>%
+        transmute(
+          SampleName,
+          group_test = if_else(.data[[g1]] == 1, g1, g2),
+          !!!extra_syms
+        ) %>%
+        mutate(
+          # force the factor levels so g1 is first, g2 second
+          group_test = factor(group_test, levels = c(g1, g2))
+        )
+
+      # filter your existence matrix to just those SampleName
       exist_i <- exist %>%
-        select(any_of(meta_i$SampleName)) %>%
-        filter(rowSums(.) > 0 & rowSums(.) < ncol(.))
-        
-      # Timepoints (if applicable)
+        dplyr::select(any_of(meta_i$SampleName)) %>% 
+        dplyr::filter(rowSums(.) > 0 & rowSums(.) < ncol(.))
+      
       if (!is.null(timepoints_file) && file.exists(timepoints_file)) {
-        timepoints_df <- read.csv(timepoints_file, header = TRUE, check.names = FALSE)
         relevant_cols <- c("ind_id", g1, g2)
+        timepoints_df <- read.csv(timepoints_file, header = TRUE, check.names = FALSE)
         available_cols <- intersect(relevant_cols, colnames(timepoints_df))
-          
-        timepoints_df <- timepoints_df %>%
-          rename(ind_id = 1) %>%
-          select(any_of(available_cols)) %>%
-          filter(!is.na(.data[[g1]]) | !is.na(.data[[g2]])) %>%
+        timepoints_df <- timepoints_df %>% 
+          rename(ind_id = 1) %>% 
+          dplyr::select(any_of(available_cols)) %>%
+          dplyr::filter(!is.na(.data[[g1]]) | !is.na(.data[[g2]])) %>%
           rowwise() %>%
           mutate(
             g1_exists = !is.na(.data[[g1]]) && .data[[g1]] %in% colnames(exist_i),
@@ -164,25 +193,28 @@ results <- future_pmap_dfr(
           ) %>%
           ungroup() %>%
           filter(g1_exists | g2_exists)
+      } else{
+        timepoints_df <- NULL
       }
       
+      # render directly, passing the objects
       render(
-        input = template,
-        output_file =  paste0(name, ".html"),
-        output_dir  =  output_dir,
+        input           = template,
+        output_file     = paste0(name, ".html"),
+        output_dir      = output_dir,
         params = list(
           metadata      = meta_i,
           exist         = exist_i,
           comparison    = name,
           library_meta  = lib_metadata_df,
           custom_colors = custom_colors,
-          timepoints    = timepoints_df,
+          timepoints    = timepoints_df,  # only if longitudinal!
           out_tables    = out_tables
         ),
         envir = new.env()
       )
 
-      time_taken <- toc(log = FALSE)
+      time_taken <- tictoc::toc(log = FALSE)
         
       # Write to log
       log_msg <- sprintf("[%s] ✅ Rendered %s in %.2f sec → %s", Sys.time(), name, time_taken$toc - time_taken$tic, output_dir)
@@ -212,7 +244,8 @@ results <- future_pmap_dfr(
       )
     })
   },
-  .options = furrr::furrr_options(seed = TRUE)
+  .options = furrr::furrr_options(seed = TRUE,
+                                  packages = c("tidyverse","readr","dplyr","stringr"))
 )
   
 # Write summary

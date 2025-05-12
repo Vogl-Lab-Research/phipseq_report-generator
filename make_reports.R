@@ -1,8 +1,10 @@
 #!/usr/bin/env Rscript
 library(yaml)
+library("tidyverse")
+library("rmarkdown")
 
+# read arguments
 args <- commandArgs(trailingOnly = TRUE)
-
 if (length(args) == 0 || "--help" %in% args) {
   cat("
 Usage:
@@ -16,10 +18,9 @@ Example config.yaml:
 comparisons_file: Metadata/comparisons.csv
 samples_file: Metadata/sorted_LLNEXT_samples_binary.csv
 exist_file: Data/exist.csv
-library_meta: Metadata/all_libraries_with_important_info.rds
-template_file: scripts/template.Rmd
 timepoints_file: Metadata/LLNext_ind_timepoints.csv Optional
 extra_cols: [Sex, Age] Optional
+output_dir: reports Default
 \n")
   quit(status = 0)
 }
@@ -31,26 +32,17 @@ if (!file.exists(config_path)) stop("❌ Config file not found: ", config_path)
 config <- yaml::read_yaml(config_path)
 
 # Extract values from config
-cmp_file        <- config$comparisons_file
-samples_file    <- config$samples_file
-exist_file      <- config$exist_file
-library_meta    <- config$library_meta
-template        <- config$template_file
+cmp_file        <- config$comparisons_file #"../MCI-Dementia/Metadata/MCI_Dementia_comparison_v0507.csv"
+samples_file    <- config$samples_file #"../MCI-Dementia/Metadata/MCI_Dementia_cohort_data_v0507.csv"
+exist_file      <- config$exist_file #"../MCI-Dementia/Data/exist.csv"
 timepoints_file <- config$timepoints_file %||% NULL  # allow missing
-extra_cols      <- config$extra_cols %||% character()  # allow missing
-output_dir      <- config$output_dir %||% "reports"
-is_absolute_path <- function(path) grepl("^(/|[A-Za-z]:)", path)  # Unix (/) or Windows (C:/)
-output_dir <- if (is_absolute_path(output_dir)) {
-  output_dir
-} else {
-  file.path(getwd(), output_dir)  # relative to where script is run from
-}
-if (!dir.exists(output_dir)) dir.create(output_dir)
+extra_cols      <- config$extra_cols %||% character()  # allow missing  #c("sex", "age")
+output_dir      <- config$output_dir %||% "reports" #"../MCI-Dementia/reports"
 
 
 # Validate required files
-required <- list(cmp_file, samples_file, exist_file, library_meta, template)
-names(required) <- c("comparisons_file", "samples_file", "exist_file", "library_meta", "template_file")
+required <- list(cmp_file, samples_file, exist_file)
+names(required) <- c("comparisons_file", "samples_file", "exist_file") 
 
 missing <- names(required)[!file.exists(unlist(required))]
 
@@ -63,42 +55,69 @@ if (!is.null(timepoints_file) && !file.exists(timepoints_file)) {
   stop("❌ Timepoints file does not exist: ", timepoints_file)
 }
 
-# Load libraries to parse, filter and render data
-library(tidyverse)
-library(rmarkdown)
+
+auto_read_csv <- function(path) {
+  # read just the header line
+  hdr <- readLines(path, n = 1)
+  
+  # count delimiters
+  n_comma <- str_count(hdr, ",")
+  n_semi  <- str_count(hdr, ";")
+  
+  # choose reader
+  if (n_semi > n_comma) {
+    message("Detected semicolon-delimited → using read_csv2()")
+    df <- read_csv2(path)
+  } else {
+    message("Detected comma-delimited → using read_csv()")
+    df <- read_csv(path)
+  }
+  df
+}
 
 # read inputs
 comparisons <- read_csv(cmp_file)
-samples     <- read_csv(samples_file) %>%
-  rename_with(~ "SampleName", .cols = 1)
-exist       <- read.csv(exist_file, header = TRUE, row.names = 1, check.names = FALSE,
-                        stringsAsFactors = FALSE)
-lib_metadata_df <- readRDS(library_meta)
+
+samples <- auto_read_csv(samples_file) %>%
+  rename(SampleName = 1)
+
+exist <- read.csv(exist_file, header = TRUE, row.names = 1, check.names = FALSE,
+                  stringsAsFactors = FALSE)
 extra_syms <- syms(extra_cols)
 
 # Get the directory of this script
 args_full <- commandArgs(trailingOnly = FALSE)
 script_path <- dirname(normalizePath(sub("--file=", "", args_full[grep("--file=", args_full)])))
-template <- file.path(script_path, "template_phipseq.Rmd")
+template <- file.path(script_path, "template/template_phipseq.Rmd") #"template/template_phipseq.Rmd" 
+library_meta <- file.path(script_path, "library_meta/all_libraries_with_important_info.rds") #"library_meta/all_libraries_with_important_info.rds" 
+lib_metadata_df <- readRDS(library_meta)
+
 
 # Set a palette of up to 12 distinct colors
 available_colors <- c(
   "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
   "#66a61e", "bisque1", "#a6761d", "#666666",
-  "#a6cee3", "#1f78b4", "#b2df8a", "salmon2")
+  "#a6cee3", "#1f78b4", "#b2df8a", "salmon2",
+  "gold1", "pink", "violet", "firebrick",
+  "chartreuse2", "darkblue", "darkgreen", "darkorchid4")
 
 # Color map to remember assignments
 group_color_map <- list()
 
+# Create output directory if needed
+is_absolute_path <- function(path) grepl("^(/|[A-Za-z]:)", path)
+output_dir <- if (is_absolute_path(output_dir)) output_dir else file.path(getwd(), output_dir)
+if (!dir.exists(output_dir)) dir.create(output_dir)
+out_tables <- file.path(output_dir, "Tables")
+if (!dir.exists(out_tables)) dir.create(out_tables)
+
 
 # Create reports
-for(i in c(1)){#seq_len(nrow(comparisons))) { 
+for(i in seq_len(nrow(comparisons))) { 
   comp <- comparisons[i, ]
   name <- pull(comp[1])
   g1   <- pull(comp[2])
   g2   <- pull(comp[3])
-
-
   
   groups <- c(g1, g2)
   for (g in groups) {
@@ -129,7 +148,7 @@ for(i in c(1)){#seq_len(nrow(comparisons))) {
 
   # filter your existence matrix to just those SampleName
   exist_i <- exist %>%
-    select(any_of(meta_i$SampleName)) %>% 
+    dplyr::select(any_of(meta_i$SampleName)) %>% 
     dplyr::filter(rowSums(.) > 0 & rowSums(.) < ncol(.))
 
   if (!is.null(timepoints_file) && file.exists(timepoints_file)) {
@@ -139,7 +158,7 @@ for(i in c(1)){#seq_len(nrow(comparisons))) {
     timepoints_df <- timepoints_df %>% 
       rename(ind_id = 1) %>% 
       dplyr::select(any_of(available_cols)) %>%
-      filter(!is.na(.data[[g1]]) | !is.na(.data[[g2]])) %>%
+      dplyr::filter(!is.na(.data[[g1]]) | !is.na(.data[[g2]])) %>%
       rowwise() %>%
       mutate(
         g1_exists = !is.na(.data[[g1]]) && .data[[g1]] %in% colnames(exist_i),
@@ -147,6 +166,8 @@ for(i in c(1)){#seq_len(nrow(comparisons))) {
       ) %>%
       ungroup() %>%
       filter(g1_exists | g2_exists)
+  } else{
+    timepoints_df <- NULL
   }
   
   # render directly, passing the objects
@@ -160,7 +181,8 @@ for(i in c(1)){#seq_len(nrow(comparisons))) {
       comparison   = name,
       library_meta = lib_metadata_df,
       custom_colors = custom_colors,
-      timepoints    = timepoints_df  # only if longitudinal!
+      timepoints    = timepoints_df,  # only if longitudinal!
+      out_tables    = out_tables
     ),
     envir = new.env()
   )

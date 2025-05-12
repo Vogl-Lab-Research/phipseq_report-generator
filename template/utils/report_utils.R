@@ -122,9 +122,13 @@ plot_sex_age_distribution <- function(data,
   # Step 1: Summarize counts per combination of group, sex and age group.
   # Here we assume that you want to mirror counts so that Male counts become negative.
   data_summary <- data %>%
+    # 0) drop any samples with missing Sex or missing Age
+    filter(!is.na(.data[[sex_col]]), !is.na(.data[[age_col]])) %>%
+    # 1) summarize
     group_by(!!group_sym, .data[[sex_col]], .data[[age_col]]) %>%
     summarize(count = n(), .groups = "drop") %>%
     mutate(count = ifelse(.data[[sex_col]] == "Male", -count, count))
+  
   
   # Step 2: Compute overall counts by group (for generating facet labels).
   df_counts <- data %>%
