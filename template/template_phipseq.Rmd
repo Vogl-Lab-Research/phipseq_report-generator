@@ -162,7 +162,7 @@ for (group_col in group_cols) {
 }
 
 #- Prevalence Filtering: Applied on each group separately
-prevalence_threshold <- 5
+prevalence_threshold <- 0
 percentage_group_test_list <- list()
 for (group_col in group_cols) {
   # Calculate percentage of presence for each peptide within each group

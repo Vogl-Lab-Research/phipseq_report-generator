@@ -76,7 +76,7 @@ auto_read_csv <- function(path) {
 }
 
 # read inputs
-comparisons <- read_csv(cmp_file)
+comparisons <- auto_read_csv(cmp_file)
 
 samples <- auto_read_csv(samples_file) %>%
   rename(SampleName = 1)
