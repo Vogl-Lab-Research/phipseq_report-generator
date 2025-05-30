@@ -70,20 +70,41 @@ metadata <- metadata %>%
 
 # find Sex and Age column names, case‑insensitive
 lc <- tolower(names(metadata))
-if (all(c("sex", "age") %in% lc)) {
-    # recover their true names
-  sex_col <- names(metadata)[lc == "sex"]
-  age_col <- names(metadata)[lc == "age"]
+# find age and sex/gender columns
+age_idx <- which(lc == "age")
+sex_idx <- which(lc %in% c("sex", "gender"))
 
+if (length(age_idx) == 1 && length(sex_idx) == 1) {
+  age_col <- names(metadata)[age_idx]
+  sex_col <- names(metadata)[sex_idx]
+  
   metadata <- metadata %>%
-    mutate(Age_group = cut(.data[[age_col]], breaks = seq(0, 120, by = 5), right  = FALSE),
-           Sex_ctg = case_when(tolower(.data[[sex_col]]) %in% c("female","male") ~ str_to_title(tolower(.data[[sex_col]])),
-                               .data[[sex_col]] %in% c(0,1) ~ factor(.data[[sex_col]],
-                                                                     levels = c(0,1), 
-                                                                     labels = c("Female","Male")),
-                               TRUE ~ as.character(.data[[sex_col]])) %>% 
-             factor(levels = c("Female","Male"))
+    mutate(
+      Age_group = cut(
+        .data[[age_col]],
+        breaks = seq(0, 120, by = 5),
+        right  = FALSE
+      ),
+      
+      Sex_ctg = {
+        # coerce to character and lowercase once
+        sex_raw <- as.character(.data[[sex_col]])
+        sex_lc  <- str_to_lower(sex_raw)
+        
+        # map to “Female” or “Male”
+        sex_norm <- case_when(
+          sex_lc %in% c("female", "f", "0") ~ "Female",
+          sex_lc %in% c("male",   "m", "1") ~ "Male",
+          TRUE                              ~ NA_character_
+        )
+        
+        # factor with the desired order
+        factor(sex_norm, levels = c("Female", "Male"))
+      }
     )
+  
+} else {
+  warning("Could not find exactly one Age and one Sex/Gender column; skipping Sex/Age grouping.")
 }
 
 # set group and merge features with group test labels
@@ -93,7 +114,47 @@ features_target <- as.data.frame(t(exist)) %>%
   dplyr::left_join(metadata %>% select(any_of(c("SampleName", group_cols))), by = "SampleName")
 ```
 
-# Enriched Peptides
+
+```{r, results='asis'}
+required <- c("Age_group", "Sex_ctg")
+show_sexAge <- all(required %in% colnames(metadata))
+```
+
+
+`r if (show_sexAge) "\n# Sex/Age Distribution"` 
+
+
+```{r}
+if (show_sexAge) {
+  sex_colors <- c("Female" = "#66C2A5", "Male" = "#FC8D62")
+  p <- plot_sex_age_distribution(data = metadata, 
+                                 group_col = group_cols, 
+                                 age_col = "Age_group", 
+                                 sex_col = "Sex_ctg", 
+                                 custom_colors = sex_colors)
+  print(p)
+} 
+```
+
+
+# Antibody Epitope Repertoire of Samples
+
+```{r}
+for (group_col in group_cols){
+  p <- plot_enrichment_counts(
+    features_target      = features_target,
+    group_col            = group_col,
+    group_cols           = group_cols,
+    prevalence_threshold = 0,
+    custom_colors        = custom_colors,
+    binwidth             = 1
+  )
+  print(p)
+}
+```
+
+
+# Enriched Peptides Distribution
 
 ```{r}
 # Enriched peptides ----
@@ -128,27 +189,6 @@ for (group_col in group_cols){
 ```
 
 
-```{r, results='asis'}
-required <- c("Age_group", "Sex_ctg")
-show_sexAge <- all(required %in% colnames(metadata))
-```
-
-
-`r if (show_sexAge) "\n# Sex/Age Distribution"` 
-
-
-```{r}
-if (show_sexAge) {
-  sex_colors <- c("Female" = "#66C2A5", "Male" = "#FC8D62")
-  p <- plot_sex_age_distribution(data = metadata, 
-                                 group_col = group_cols, 
-                                 age_col = "Age_group", 
-                                 sex_col = "Sex_ctg", 
-                                 custom_colors = sex_colors)
-  print(p)
-} 
-```
-
 # Group Peptide Comparisons {.tabset}
 
 ```{r}
@@ -161,41 +201,16 @@ for (group_col in group_cols) {
     tibble::deframe()  # Convert the summarized result to a named vector (group -> count)
 }
 
-#- Prevalence Filtering: Applied on each group separately
 prevalence_threshold <- 0
 percentage_group_test_list <- list()
-for (group_col in group_cols) {
-  # Calculate percentage of presence for each peptide within each group
-  percentage_df <- features_target %>%
-    filter(!is.na(!!sym(group_col))) %>%  
-    tidyr::gather(key = "Peptide", value = "Presence", -SampleName, -all_of(group_cols)) %>%
-    group_by(!!sym(group_col), Peptide) %>%
-    summarise(Percent = mean(Presence) * 100, 
-              # Count = sum(Presence),           # Calculate count of presence
-              .groups = "drop") %>%
-    tidyr::spread(key = !!sym(group_col), value = Percent) %>%
-    left_join(lib_metadata_df %>%
-                tibble::rownames_to_column(var = "Peptide") %>%
-                dplyr::select(Peptide, Description, `full name`, Organism_complete_name), 
-              by = "Peptide")
-  
-  # Identify all percentage columns dynamically
-  percentage_columns <- setdiff(colnames(percentage_df), c("Peptide", "Description", "full name", "Organism_complete_name"))
-  
-  # Apply the prevalence filter on all identified percentage columns
-  percentage_df <- percentage_df %>%
-    filter(if_any(all_of(percentage_columns), ~ . >= prevalence_threshold)) #if_all
-  
-  # Add the count columns dynamically based on percentages and number of samples per group
-  for (column in percentage_columns) {
-    num_samples_group <- num_samples_per_group[[group_col]][[column]]  # Get the number of samples for the current group
-    percentage_df[[paste0(column, "_count")]] <- round(percentage_df[[column]] / 100 * num_samples_group, 0)
-  }
-  
-  # Save the dataframe to the list
-  percentage_group_test_list[[group_col]] <- percentage_df
+for (group_col in group_cols){
+  percentage_group_test_list[[group_col]] <-  get_count_percentage_df(
+    features_target      = features_target,
+    group_col            = group_col,
+    group_cols           = group_cols,
+    lib_metadata_df      = lib_metadata_df,
+    prevalence_threshold = prevalence_threshold)
 }
-
 comparison_group_tests <- automate_group_test_analysis(percentage_group_test_list, num_samples_per_group)
 ```
 
@@ -245,6 +260,7 @@ DT::datatable(
 
 ```{r, results='asis'}
 p <- plot_mds(features_target, group_cols[1], 
+              group_cols = group_cols,
                      custom_colors,
                      method = "jaccard",
                      permutations = 999) 
@@ -369,7 +385,7 @@ plot_correlation_distribution(
 
 # Functional Subgroups in Antigen Library
 
-```{r, fig.height=5, fig.width=6}
+```{r,  fig.width=10, fig.height=5}
 for (group_col in group_cols) {
   comparisons <- names(comparison_group_tests[[group_col]])
   
@@ -386,7 +402,8 @@ for (group_col in group_cols) {
     output_table <- paste0(out_dir,"/table_peptidesSignificance_",group_col,"_",comp_name,".csv")
     readr::write_csv(comparison_group_tests[[group_col]][[comp_name]]$comparison_df, output_table)
     
-    p <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, prevalence_threshold = 5)
+    p <- plot_ratios_by_subgroup_kruskal_dunn(comparison_df, group1, group2, subgroup_lib_df, 
+                                              custom_colors, prevalence_threshold = 5, min_peptides = 5)
     
     if (!is.null(p)) {
       print(p)

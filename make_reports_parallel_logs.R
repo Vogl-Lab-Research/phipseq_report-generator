@@ -82,11 +82,11 @@ auto_read_csv <- function(path) {
   
   # choose reader
   if (n_semi > n_comma) {
-    message("Detected semicolon-delimited → using read_csv2()")
-    df <- read_csv2(path)
+    message("Detected semicolon-delimited file")
+    df <- read.csv(path, header = TRUE, check.names = FALSE, sep=";")#read_csv2(path, col_names = TRUE, name_repair = "minimal")
   } else {
-    message("Detected comma-delimited → using read_csv()")
-    df <- read_csv(path)
+    message("Detected comma-delimited file")
+    df <- read.csv(path, header = TRUE, check.names = FALSE, sep=",") #read_csv(path, col_names = TRUE, name_repair = "minimal")
   }
   df
 }
@@ -176,11 +176,11 @@ results <- furrr::future_pmap_dfr(
       # filter your existence matrix to just those SampleName
       exist_i <- exist %>%
         dplyr::select(any_of(meta_i$SampleName)) %>% 
-        dplyr::filter(rowSums(.) > 0 & rowSums(.) < ncol(.))
+        dplyr::filter(rowSums(.) > 0) # & rowSums(.) < ncol(.))
       
       if (!is.null(timepoints_file) && file.exists(timepoints_file)) {
         relevant_cols <- c("ind_id", g1, g2)
-        timepoints_df <- read.csv(timepoints_file, header = TRUE, check.names = FALSE)
+        timepoints_df <- auto_read_csv(timepoints_file) #read.csv(timepoints_file, header = TRUE, check.names = FALSE)
         available_cols <- intersect(relevant_cols, colnames(timepoints_df))
         timepoints_df <- timepoints_df %>% 
           rename(ind_id = 1) %>% 

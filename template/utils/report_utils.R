@@ -1,11 +1,16 @@
 library("stats")  # For chi-squared test
 library("multcomp")  # For multiple testing correction
 library("dplyr")
+library("tidyr")
 library("ggplot2")
 library("scales")
 library("ggsignif")
 library("plotly")
 library("nnet")
+library("patchwork")
+library("ggpubr")
+library("rstatix")
+library("ggvenn")
 
 # Global vars
 
@@ -24,6 +29,152 @@ SUBGROUPS_ORDER <- c('Complete library',
                      'Metagenomics\nantigens', 'Pathogenic strains', 'Probiotic strains',
                      'Antibody-coated\nstrains',  'Flagellins', 'Infectious\npathogens',
                      'IEDB/controls')
+
+######################################################
+############## Count Distribution ####################
+######################################################
+get_count_percentage_df <- function(features_target, group_col, group_cols, prevalence_threshold = 5,
+                                    lib_metadata_df = NULL) {
+  df <- features_target %>%
+    # only samples that actually have a group
+    filter(!is.na(.data[[group_col]])) %>%
+    # gather 0/1 peptide calls
+    pivot_longer(
+      cols     = -c(SampleName, any_of(group_cols)),
+      names_to = "Peptide",
+      values_to= "Presence"
+    ) %>%
+    # compute both raw count and percent in one summarise
+    group_by(Peptide, Group = .data[[group_col]]) %>%
+    summarise(
+      count   = sum(Presence, na.rm = TRUE),
+      Percent = 100 * count / n(),
+      .groups = "drop"
+    ) %>%
+    # spread into one column per group for Percent and one per group for Count
+    pivot_wider(
+      names_from  = Group,
+      values_from = c(count, Percent),
+      names_glue  = "{Group}_{.value}"
+    )
+    # bring back peptide metadata
+  if (!is.null(lib_metadata_df)) {      
+    df <- df %>% 
+        left_join(
+          lib_metadata_df %>%
+            tibble::rownames_to_column("Peptide") %>%
+            select(Peptide, Description, `full name`, Organism_complete_name),
+          by = "Peptide"
+        )
+    }
+  df <- df %>%
+    # drop peptides that never hit prevalence threshold in any group
+    filter(if_any(ends_with("_Percent"),~ . >= prevalence_threshold)) %>% 
+    # strip off the "_Percent" suffix
+    rename_with(
+      ~ sub("_Percent$", "", .x),
+      ends_with("_Percent")
+    ) 
+  return(df)
+}
+
+
+plot_enrichment_counts <- function(features_target,
+                                   group_col, group_cols,
+                                   prevalence_threshold = 0,
+                                   custom_colors,
+                                   binwidth = 1) {
+  # get the count/percent table
+  percentage_df <- get_count_percentage_df(
+    features_target      = features_target,
+    group_col            = group_col,
+    group_cols           = group_cols, 
+    prevalence_threshold = prevalence_threshold
+  )
+  
+  
+  # pivot to long of the *_count columns
+  count_df <- percentage_df %>%
+    select(ends_with("_count")) %>%
+    pivot_longer(
+      cols      = everything(),
+      names_to  = "Cohort",
+      values_to = "n_present"
+    ) %>%
+    mutate(Cohort = sub("_count$", "", Cohort)) %>%
+    filter(n_present > 0)   # drop zero‐present peptides 
+  
+  # compute thresholds per cohort
+  thresholds <- count_df %>%
+    group_by(Cohort) %>%
+    summarise(
+      n_samples   = max(n_present),
+      thresh      = ceiling(n_samples * 0.05),
+      n_peptides5 = sum(n_present >= thresh),
+      .groups     = "drop"
+    )
+  
+  # build the plot
+  p <- ggplot(count_df, aes(x = n_present, fill = Cohort)) +
+    geom_histogram(
+      binwidth = binwidth,
+      position = "identity",
+      alpha    = 0.9,
+    ) +
+    scale_y_log10(
+      breaks = 10^(0:6),                                      # 10^0,10^1,…,10^6
+      labels = trans_format("log10", math_format(10^.x)),     # render as 10^x
+      expand = expansion(mult = c(0, .15))                    # a little space above
+    ) +
+    annotation_logticks(sides = "l", scaled = TRUE) +
+    scale_fill_manual(values = custom_colors) +
+    labs(
+      x = "Number of samples peptide is present in",
+      y = "Number of significantly bound peptides (log₁₀ scale)",
+    ) +
+    
+    # horizontal arrowed line
+    geom_segment(
+      data        = thresholds,
+      aes(
+        x    = thresh,
+        xend = n_samples,
+        y    = n_peptides5,
+        yend = n_peptides5
+      ),
+      inherit.aes = FALSE,
+      linetype    = "dashed",
+      color       = "black",
+      size        = 0.4,
+      arrow       = arrow(length = unit(0.1, "cm"), ends = "both")
+    ) +
+    # centred label above line
+    geom_text(
+      data        = thresholds,
+      aes(
+        x     = (thresh + n_samples) / 2,
+        y     = n_peptides5,
+        label = paste0(n_peptides5, " peptides in ≥5%")
+      ),
+      inherit.aes = FALSE,
+      vjust       = -0.5,
+      size        = 3
+    ) +
+    
+    facet_wrap(~ Cohort, ncol = 2, scales = "free_x") +
+    theme_bw(base_size = 10) +
+    theme(
+      legend.position   = "none",
+      strip.background  = element_blank(),
+      strip.text        = element_text(face = "bold"),
+      panel.grid.major  = element_line(color = "grey90"),
+      panel.grid.minor  = element_blank()
+    )
+  
+  return(p)
+}
+
+
 ######################################################
 ####### plot  enrichment and diversity################
 ######################################################
@@ -31,6 +182,10 @@ plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pai
   # Convert grouping column name to symbol
   group_sym <- sym(group_col)
   values_sym <- sym(values_col)
+  
+  # Drop rows where either group or value is NA
+  data <- data %>%
+    filter(!is.na(!!group_sym), !is.na(!!values_sym))
   
   # Summarize counts by that group
   df_counts <- data %>%
@@ -122,9 +277,8 @@ plot_sex_age_distribution <- function(data,
   # Step 1: Summarize counts per combination of group, sex and age group.
   # Here we assume that you want to mirror counts so that Male counts become negative.
   data_summary <- data %>%
-    # 0) drop any samples with missing Sex or missing Age
-    filter(!is.na(.data[[sex_col]]), !is.na(.data[[age_col]])) %>%
-    # 1) summarize
+    # 0) drop any samples with missing Sex or missing Age or missing group
+    filter(!is.na(!!group_sym), !is.na(.data[[sex_col]]), !is.na(.data[[age_col]])) %>%
     group_by(!!group_sym, .data[[sex_col]], .data[[age_col]]) %>%
     summarize(count = n(), .groups = "drop") %>%
     mutate(count = ifelse(.data[[sex_col]] == "Male", -count, count))
@@ -132,6 +286,7 @@ plot_sex_age_distribution <- function(data,
   
   # Step 2: Compute overall counts by group (for generating facet labels).
   df_counts <- data %>%
+    filter(!is.na(!!group_sym), !is.na(.data[[sex_col]]), !is.na(.data[[age_col]])) %>%
     group_by(!!group_sym) %>%
     summarize(sample_count = n(), .groups = "drop")
   
@@ -336,13 +491,14 @@ automate_group_test_analysis <- function(percentage_group_test_list, num_samples
 
 
 plot_mds <- function(features_target, group_col, 
-                     custom_colors,
+                     custom_colors,  group_cols =NA,
                      method = "jaccard",
                      permutations = 999) {
   
   # Full matrix sames as exist for the corresponding group and transposed
   binary_data_all <- features_target %>%
-    dplyr::select(-any_of(group_col)) %>%
+    filter(!is.na(.data[[group_col]])) %>%       # Only keep rows with non-NA group
+    dplyr::select(-any_of(group_cols)) %>%
     tibble::column_to_rownames("SampleName")
   
   # Distance matrices
@@ -384,6 +540,72 @@ plot_mds <- function(features_target, group_col,
   p
 }
 
+####################################
+#############PCA ###################
+####################################
+plot_pca <- function(fold_df, group_col, custom_colors,
+                     group_cols = NULL, prevalence_cutoff = 0.05,
+                     log_transform = TRUE) {
+  
+  # 1) Identify peptide columns
+  peptide_cols <- setdiff(
+    names(fold_df),
+    c("SampleName", group_col, group_cols)
+  )
+  
+  # 2) Find peptides with ≥ cutoff prevalence in any group
+  keep_peptides <- fold_df %>%
+    filter(!is.na(.data[[group_col]])) %>%
+    tidyr::pivot_longer(all_of(peptide_cols),
+                        names_to  = "peptide",
+                        values_to = "fc") %>%
+    mutate(present = fc != 0) %>%
+    group_by(.data[[group_col]], peptide) %>%
+    summarise(prevalence = mean(present), .groups = "drop") %>%
+    group_by(peptide) %>%
+    filter(any(prevalence >= prevalence_cutoff)) %>%
+    pull(peptide) %>%
+    unique()
+  
+  # 3) Build filtered matrix (samples × kept peptides)
+  mat <- fold_df %>%
+    filter(!is.na(.data[[group_col]])) %>%
+    select(SampleName, all_of(keep_peptides)) %>%
+    tibble::column_to_rownames("SampleName") %>%
+    as.matrix()
+  
+  # 4) Optionally log2-transform fold-changes
+  if (log_transform) {
+    mat <- log2(mat + 1)  
+    # +1 avoids log(0); use another pseudocount if you prefer
+  }
+  
+  # 5) PCA
+  pca_res <- prcomp(mat, center = TRUE, scale. = FALSE)
+  var_exp  <- round(100 * pca_res$sdev^2 / sum(pca_res$sdev^2), 1)
+  
+  pca_df <- as.data.frame(pca_res$x[,1:2]) %>%
+    tibble::rownames_to_column("SampleName") %>%
+    left_join(
+      fold_df %>% select(SampleName, any_of(group_col)),
+      by = "SampleName"
+    )
+  
+  # 6) Plot PC1 vs PC2
+  ggplot(pca_df, aes(x = PC1, y = PC2, fill = .data[[group_col]])) +
+    geom_point(shape = 21, color = "black", size = 3, alpha = 0.6) +
+    scale_fill_manual(values = custom_colors) +
+    labs(
+      x = paste0("PC1 (", var_exp[1], "%)"),
+      y = paste0("PC2 (", var_exp[2], "%)"),
+      fill = group_col
+    ) +
+    theme_bw() +
+    theme(
+      plot.title      = element_text(hjust = 0.5, face = "bold"),
+      legend.position = "right"
+    )
+}
 
 ####################################
 ############Similarity pot##########
@@ -613,28 +835,25 @@ plot_correlation_distribution <- function(phiseq_df, metadata,
 }
 
 
-
 ###################################################
 ############ ratios subgroups######################
 ###################################################
 
 plot_ratios_by_subgroup <- function(comparison_df, group1, group2, subgroup_lib_df, prevalence_threshold = 5) {
   # Join peptide subgroup flags
-  comparison_df <- comparison_df %>%
-    left_join(subgroup_lib_df, by = "Peptide")
-  
-  # Reshape to long format: one row per peptide–subgroup combo
   long_ratios <- comparison_df %>%
+    left_join(subgroup_lib_df, by = "Peptide") %>%
     tidyr::pivot_longer(cols = all_of(SUBGROUPS_TO_INCLUDE),
                         names_to = "subgroup_flag",
                         values_to = "belongs_to_group") %>%
     dplyr::filter(belongs_to_group) %>%
-    mutate(subgroup = SUBGROUPS_TO_NAME[subgroup_flag],
-           subgroup = factor(subgroup, levels = SUBGROUPS_ORDER)) %>%
+    mutate(subgroup = factor(SUBGROUPS_TO_NAME[subgroup_flag],
+                             levels = SUBGROUPS_ORDER)) %>%
     dplyr::filter(.data[[group1]] >= prevalence_threshold | .data[[group2]] >= prevalence_threshold)
   
+  
   # Skip empty plots
-  if (nrow(long_ratios) < 3) {
+  if (nrow(long_ratios) < 10) {
     warning("Not enough data for ", group1, " vs ", group2)
     return(NULL)
   }
@@ -649,8 +868,8 @@ plot_ratios_by_subgroup <- function(comparison_df, group1, group2, subgroup_lib_
     data = long_ratios,
     method = "wilcox.test",
     comparisons = pairwise_combos,
-    p.adjust.method = "BH"
-  ) %>% filter(p.adj < 0.05)
+    p.adjust.method = "bonferroni"
+  ) %>% filter(p.adj < 0.01)
   
   # Format for stat_compare_means
   sig_pairs <- lapply(seq_len(nrow(sig_comparisons)), function(i) {
@@ -680,4 +899,172 @@ plot_ratios_by_subgroup <- function(comparison_df, group1, group2, subgroup_lib_
     )
   
   return(p)
+}
+
+
+
+plot_ratios_by_subgroup_kruskal_dunn <- function(comparison_df,
+                              group1, group2,
+                              subgroup_lib_df, custom_colors,
+                              prevalence_threshold = 5,
+                              min_peptides = 5) {
+  
+  # 1) build the long table
+  long_ratios <- comparison_df %>%
+    left_join(subgroup_lib_df, by = "Peptide") %>%
+    tidyr::pivot_longer(
+      cols      = all_of(SUBGROUPS_TO_INCLUDE),
+      names_to  = "subgroup_flag",
+      values_to = "in_subgroup"
+    ) %>%
+    dplyr::filter(in_subgroup) %>%
+    mutate(
+      subgroup = factor(
+        SUBGROUPS_TO_NAME[subgroup_flag],
+        levels = SUBGROUPS_ORDER
+      )
+    ) %>%
+    dplyr::filter(.data[[group1]] >= prevalence_threshold |
+                    .data[[group2]] >= prevalence_threshold) %>%
+    select(Peptide, subgroup, ratio)
+  
+  if(nrow(long_ratios) < 10) {
+    warning("Too few points for ", group1, " vs ", group2)
+    return(NULL)
+  }
+  
+  posthoc <- long_ratios %>%
+    dunn_test(ratio ~ subgroup, p.adjust.method = "BY") %>%
+    dplyr::filter(n1 >= min_peptides, n2 >= min_peptides) %>%
+    add_significance("p.adj") %>%
+    add_xy_position(
+      data    = long_ratios,
+      formula = ratio ~ subgroup,
+      step.increase = diff(range(long_ratios$ratio)) * 0.1
+    )
+  
+  # 4) Manually compute y positions so they stack
+  if (nrow(posthoc) > 0) {
+    top   <- max(long_ratios$ratio, na.rm = TRUE)
+    # small offset proportional to the data range
+    offset <- diff(range(long_ratios$ratio, na.rm = TRUE)) * 0.1
+    posthoc_filter <- posthoc %>%
+      dplyr::filter(p.adj < 0.01) %>% 
+      arrange(p.adj) %>%
+      mutate(y.position = top + seq_len(n()) * offset)
+  }
+  
+  p1 <- ggplot(long_ratios, aes(subgroup, ratio, fill = subgroup)) +
+    geom_boxplot(outlier.shape = 21, width = 0.6) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray1") +
+    scale_fill_brewer(palette = "Paired") +
+    theme_bw(base_size = 8) +
+    theme(
+      axis.text.x     = element_text(angle = 45, hjust = 1),
+      legend.position = "none"
+      ,    plot.margin = margin(1,1,1,1)
+    ) +
+    labs(
+      x = "Subgroups of the antigen library",
+      y = paste("log-ratio of antibody responses\nin", group1, "and", group2, sept=" ")
+    ) +
+    # global KW p-value
+    stat_compare_means(
+      method  = "kruskal.test",
+      label   = "p.format",
+      label.x = 4, #min(long$ratio) * 1.02,
+      #label.x.npc = "centre",
+      label.y.npc = "bottom",
+      size        = 3
+    )
+  
+  #  Add pairwise stars if any
+  # if (nrow(posthoc_filter) > 0) {
+  #   p1 <- p1 +
+  #     stat_pvalue_manual(
+  #       posthoc_filter,
+  #       label       = "p.adj.signif",
+  #       xmin        = "group1",
+  #       xmax        = "group2",
+  #       y.position  = "y.position",
+  #       tip.length  = 0.01,
+  #       inherit.aes = FALSE
+  #     )
+  #}
+  
+  p2 <- ggplot(posthoc, aes(x = group1, y = group2, fill = p.adj.signif)) +
+    geom_tile(color = "grey90", size = 0.2) +
+    geom_text(aes(label = sprintf("%.1g", p.adj)),
+              color = "black", size = 1.5) +
+    scale_fill_manual(
+      values = c(
+        "****"  = "#67001F",
+        "***"   = "#B2182B",
+        "**"    = "#D6604D",
+        "*"     = "#F4A582",
+        "ns"    = "dodgerblue1"
+      ),
+      na.value = "white",
+      name     = "Significance"
+    ) +
+    # Put x-axis on the bottom:
+    scale_x_discrete(
+      limits  = SUBGROUPS_ORDER,
+      position = "bottom"
+    ) +
+    # Reverse y so first factor is at the top:
+    scale_y_discrete(
+      limits   = rev(SUBGROUPS_ORDER),
+      position = "left"
+    ) +
+    labs(x = NULL, y = NULL) +
+    coord_fixed() +
+    theme_minimal(base_size = 8) +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.text.x      = element_text(angle = 45, hjust = 1),
+      plot.margin = margin(1, 1, 1, 2),
+      legend.position  = "right",
+      legend.margin    = margin(0, 0, 0, -10),
+      legend.box.margin = margin(0, 0, 0, -10),  # pull legend 10px left
+      legend.key.size  = unit(12, "pt"),
+      #legend.title     = element_text(size = 8),
+      #legend.text      = element_text(size = 7)
+    )
+  
+  
+  # comparison_df has columns Peptide, <group1>_count, <group2>_count
+  g1_cnt <- paste0(group1, "_count")
+  g2_cnt <- paste0(group2, "_count")
+  
+  comparison_df %>%
+    dplyr::filter(.data[[group1]] >= prevalence_threshold |
+                    .data[[group2]] >= prevalence_threshold) 
+  
+  set1 <- comparison_df %>%
+    filter(!!sym(g1_cnt) >  0) %>%   # present in group1
+    pull(Peptide) %>% 
+    unique()
+  
+  set2 <- comparison_df %>%
+    filter(!!sym(g2_cnt) >  0) %>%   # present in group2
+    pull(Peptide) %>% 
+    unique()
+  
+  
+  # plot Venn with ggvenn
+  venn_input <- setNames(list(set1, set2), c(group1, group2))
+  p3 <- ggvenn(venn_input,
+         fill_color   = c(custom_colors[group1][[1]], custom_colors[group2][[1]]),
+         stroke_size  = 0.1,
+         set_name_size= 3,
+         text_size    = 3, 
+         auto_scale = F,
+         show_outside = "none") +
+    theme(
+      plot.margin = margin(1, 1, 1, 1)
+    )
+  
+  return(p3 + p1 + p2)
 }
