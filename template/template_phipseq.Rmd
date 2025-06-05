@@ -6,6 +6,7 @@ license: "CC-BY 4.0"
 date: "`r Sys.Date()`"
 output:
   html_document:
+    self_contained: true
     theme: united
     highlight: tango
     toc: true           # Enable table of contents
@@ -47,17 +48,20 @@ out_dir <- params$out_tables
 # custom_colors = custom_colors
           
 actual_subgroup_columns <- setdiff(names(SUBGROUPS_TO_NAME), "all")
-subgroup_lib_df <-  lib_metadata_df %>%
+subgroup_lib_df <- lib_metadata_df %>%
   tibble::rownames_to_column(var = "Peptide") %>%
-  mutate(across(all_of(actual_subgroup_columns), ~ ifelse(is.na(.), FALSE, . == 1 | . == TRUE))) %>%
-  mutate(across(all_of(actual_subgroup_columns), ~ case_when(
-    . == "True" ~ TRUE,
-    . == "False" ~ FALSE,
-    is.na(.) ~ FALSE,
-    TRUE ~ as.logical(.)
-  ))) %>%
-  mutate(all = TRUE) %>%  
-  dplyr::select(c('Peptide', all_of(SUBGROUPS_TO_INCLUDE)))
+  mutate(
+    across(
+      all_of(actual_subgroup_columns),
+      ~ case_when(
+        is.na(.)                       ~ FALSE,
+        . %in% c(1, "1", TRUE, "True") ~ TRUE,
+        TRUE                           ~ FALSE
+      )
+    ),
+    all = TRUE
+  ) %>%
+  select(Peptide, all_of(SUBGROUPS_TO_INCLUDE))
 ```
 
 
@@ -124,7 +128,7 @@ show_sexAge <- all(required %in% colnames(metadata))
 `r if (show_sexAge) "\n# Sex/Age Distribution"` 
 
 
-```{r}
+```{r, fig.height=5, fig.width=8}
 if (show_sexAge) {
   sex_colors <- c("Female" = "#66C2A5", "Male" = "#FC8D62")
   p <- plot_sex_age_distribution(data = metadata, 
@@ -139,7 +143,7 @@ if (show_sexAge) {
 
 # Antibody Epitope Repertoire of Samples
 
-```{r}
+```{r, fig.height=5, fig.width=7}
 for (group_col in group_cols){
   p <- plot_enrichment_counts(
     features_target      = features_target,
@@ -147,7 +151,7 @@ for (group_col in group_cols){
     group_cols           = group_cols,
     prevalence_threshold = 0,
     custom_colors        = custom_colors,
-    binwidth             = 1
+    binwidth             = 0.5
   )
   print(p)
 }
@@ -221,23 +225,33 @@ comparison_group_tests <- automate_group_test_analysis(percentage_group_test_lis
 #group <- names(comparison_group_tests)[1]
 all_plots <- lapply(comparison_group_tests[[group_col]], function(x) {
   # Adjusting the plot margins to avoid hover text cropping
-  x$plot <- x$plot %>% layout(margin = list(l = 80, r = 80, b = 80, t = 80, pad = 0),
-                              height = 550,  # Define the plot height in pixels
-                              width = 550,
-                              hoverlabel = list(font = list(size = 10)),
-                              xaxis = list(#range = c(-2, 102),
-                                           scaleratio = 1,
-                                           scaleanchor = "y"
-                                           ),
-                              yaxis = list(#range = c(-2, 102), 
-                                           scaleratio = 1,
-                                           scaleanchor = "x"))
-  
-  htmltools::div(style = "margin-bottom: 150px;", x$plot)
+  x$plot <- htmltools::div(style = "margin-bottom: 150px;", x$plot)
 })
 htmltools::tagList(all_plots)
 ```
 <div style="height: 50px;"></div>
+
+
+## Volcano plot
+
+```{r, results='asis'}
+volcano_plots <- list()
+for (group_col in group_cols) {
+  comparisons <- names(comparison_group_tests[[group_col]])
+  for (comp_name in comparisons) {
+    #comp_name <- comparisons[1]
+    groups <- strsplit(comp_name, "_vs_")[[1]]
+    group1 <- groups[1]
+    group2 <- groups[2]
+    comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df
+    p <- make_interactive_volcano(comparison_df = comparison_df, group1 = group1, group2 = group2)
+    volcano_plots[[paste0(group1, "_vs_", group2)]] <- list(plot = p %>% htmltools::div(style = "margin-bottom: 150px;"))
+    # ggsave(paste0(group_col, "_", comp_name, "_volcano_plot.png"), p)
+  }
+  print(htmltools::tagList(volcano_plots))
+}
+```
+
 
 
 ## Table
@@ -256,6 +270,7 @@ DT::datatable(
 <div style="height: 50px;"></div>
 
 
+
 # Multidimensional Scaling (MDS)
 
 ```{r, results='asis'}
@@ -268,7 +283,7 @@ p <- plot_mds(features_target, group_cols[1],
 ggplotly(p, tooltip = "text") %>%
   layout(margin = list(l = 80, r = 80, b = 80, t = 80, pad = -2),
          height = 550,  # Define the plot height in pixels
-         width = 650,
+         width = 600,
          hoverlabel = list(font = list(size = 10)))
 ```
 <div style="height: 50px;"></div>
@@ -385,7 +400,7 @@ plot_correlation_distribution(
 
 # Functional Subgroups in Antigen Library
 
-```{r,  fig.width=10, fig.height=5}
+```{r,  fig.width=11, fig.height=4}
 for (group_col in group_cols) {
   comparisons <- names(comparison_group_tests[[group_col]])
   
