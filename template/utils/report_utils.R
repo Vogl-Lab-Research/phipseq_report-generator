@@ -12,6 +12,7 @@ library("patchwork")
 library("ggpubr")
 library("rstatix")
 library("ggvenn")
+library("ggmsa")
 
 # Global vars
 
@@ -20,41 +21,75 @@ SUBGROUPS_TO_INCLUDE <- c('all',
                           'is_bac_flagella',   'is_infect',
                           'is_IEDB_or_cntrl')
 SUBGROUPS_ORDER <- c('Complete library', 
-                     'Metagenomics\nantigens', 'Pathogenic strains', 'Probiotic strains', 'Microbiota\nstrains',
-                     'Antibody-coated\nstrains',  'Flagellins', 'Infectious\npathogens',
+                     'Metagen antigens', 'Pathogenic strains', 'Probiotic strains', 'Microbiota strains',
+                     'Antibody-coated strains',  'Flagellins', 'Infectious pathogens',
                      'IEDB/controls')
 SUBGROUPS_TO_NAME <- c(
   'all' = 'Complete library',
-  'is_PNP' = 'Metagenomics\nantigens',  'is_patho' = 'Pathogenic strains', 
-  'is_probio' = 'Probiotic strains', 'is_MPA' = 'Microbiota\nstrains', 'is_IgA' = 'Antibody-coated\nstrains', 
-  'is_bac_flagella' = 'Flagellins', 'is_infect' = 'Infectious\npathogens', 
+  'is_PNP' = 'Metagen antigens',  'is_patho' = 'Pathogenic strains', 
+  'is_probio' = 'Probiotic strains', 'is_MPA' = 'Microbiota strains', 'is_IgA' = 'Antibody-coated strains', 
+  'is_bac_flagella' = 'Flagellins', 'is_infect' = 'Infectious pathogens', 
   'is_IEDB_or_cntrl' = 'IEDB/controls')
 
 #######################################################
 ################ Helpers ##############################
 #######################################################
+# add_flag_by_patterns <- function(df,
+#                                  new_flag,
+#                                  patterns,
+#                                  target_cols = c("Organism_complete_name", "Description")) {
+#   # 1) Build a single case‐insensitive regex from all patterns:
+#   regex_str <- paste0("(?i)", paste(patterns, collapse = "|"))
+#   
+#   # 2) Mutate a new logical column.  We use if_any(all_of(target_cols), ~ str_detect(...)):
+#   df %>%
+#     mutate(
+#       !!new_flag := if_any(
+#         all_of(target_cols),
+#         ~ str_detect(.x, regex(regex_str))
+#       )
+#     )
+# }
+
+
 add_flag_by_patterns <- function(df,
                                  new_flag,
                                  patterns,
                                  target_cols = c("Organism_complete_name", "Description")) {
-  # 1) Build a single case‐insensitive regex from all patterns:
-  regex_str <- paste0("(?i)", paste(patterns, collapse = "|"))
+  # build our two regexes:
+  regex_sub   <- paste0("(?i)", paste(patterns, collapse = "|"))
+  regex_exact <- paste0("(?i)^(", paste(patterns, collapse = "|"), ")$")
   
-  # 2) Mutate a new logical column.  We use if_any(all_of(target_cols), ~ str_detect(...)):
+  # split out any Peptide column
+  pep_present  <- "Peptide" %in% target_cols
+  nonpep_cols  <- setdiff(target_cols, "Peptide")
+  
   df %>%
     mutate(
-      !!new_flag := if_any(
-        all_of(target_cols),
-        ~ str_detect(.x, regex(regex_str))
-      )
-    )
+      # temporary flags
+      sub_flag = if (length(nonpep_cols) > 0) {
+        if_any(all_of(nonpep_cols), ~ str_detect(.x, regex(regex_sub)))
+      } else {
+        # no non-Peptide columns requested
+        FALSE
+      },
+      pep_flag = if (pep_present) {
+        # exact match only on the Peptide column
+        str_detect(.data$Peptide, regex(regex_exact))
+      } else {
+        FALSE
+      },
+      # final flag is TRUE if either test passes
+      !!new_flag := sub_flag | pep_flag
+    ) %>%
+    # clean up
+    select(-sub_flag, -pep_flag)
 }
-
 
 ######################################################
 ############## Count Distribution ####################
 ######################################################
-get_count_percentage_df <- function(features_target, group_col, group_cols, prevalence_threshold = 5,
+get_count_percentage_df <- function(features_target, group_col, group_cols, prevalence_threshold = 0,
                                     lib_metadata_df = NULL) {
   df <- features_target %>%
     # only samples that actually have a group
@@ -357,127 +392,346 @@ plot_sex_age_distribution <- function(data,
 ####################################
 ##########Scatterplot###############
 ####################################
-make_interactive_scatterplot <- function(comparison_df, group1, group2, N,
-                                         highlight_col   = NULL,
-                                         scatter_colors = c(
+make_interactive_scatterplot <- function(comparison_df,
+                                         group1, group2, N,
+                                         highlight_cols   = NULL,
+                                         highlight_colors = NULL,
+                                         default_color    = "gray70",
+                                         #multiple_color   = "black",
+                                         significant_colors = c(
                                            "not significant"                 = "dodgerblue",
                                            "significant prior correction"    = "forestgreen",
-                                           "significant post FDR correction" = "firebrick"
-                                         )){
-  # 2) Decide on the aesthetic mapping for color:
-  if (!is.null(highlight_col) && highlight_col %in% names(comparison_df)) {
-    comparison_df <-  comparison_df %>%
+                                           "significant post FDR correction" = "firebrick"),
+                                         interactive = TRUE) {
+  # sanity-check:
+  if (!is.null(highlight_cols)) {
+    missing_cols <- setdiff(highlight_cols, names(comparison_df))
+    if (length(missing_cols)) {
+      stop("These highlight_cols are not in your data frame: ",
+           paste(missing_cols, collapse = ", "))
+    }
+  }
+  
+  # build the collapsed factor ------------------------------------------------
+  if (!is.null(highlight_cols) && length(highlight_cols) > 0) {
+    comparison_df <- comparison_df %>%
+      rowwise() %>%
       mutate(
-        # Build a tooltip text only for the “significant” categories
-        tooltip_txt = ifelse(
-          !!sym(highlight_col) == FALSE,
+        # collect the names of all TRUE flags in this row:
+        .trues = list(highlight_cols[ c_across(all_of(highlight_cols)) ]),
+        # now assign highlight:
+        highlight = if (length(.trues) == 0) {
+          "none"
+        } else if (length(.trues) >= 1) {
+          .trues[[1]]
+        } #else {
+        #"multiple"}
+      ) %>%
+      ungroup() %>%
+      select(-.trues)
+    
+    # ensure factor has all levels:
+    levels_needed <- c("none", highlight_cols) #multiple
+    comparison_df$highlight <- factor(
+      comparison_df$highlight,
+      levels = levels_needed
+    )
+    # build tooltip (only for highlighted points)
+    comparison_df <- comparison_df %>%
+      mutate(
+        log2ratio = log2( ratio ),
+        tooltip_txt = if_else(
+          highlight == "none",
           NA_character_,
           paste0(
-            "Peptide: ",     Peptide,      "<br>",
-            "Desc: ",        Description,  "<br>",
-            "Organism: ",    Organism_complete_name, "<br>",
-            group1, ": ",    !!sym(group1), " / ",
-            group2, ": ",    !!sym(group2), "<br>"
+            "Peptide: ",  Peptide,               "<br>",
+            "Desc: ",     Description,           "<br>",
+            "Organism: ", Organism_complete_name,"<br>",
+            group1, ": ", !!sym(group1), " / ",
+            group2, ": ", !!sym(group2),       "<br>",
+            "Highlight: ", highlight
           )
         )
       ) %>%
-      filter(is.finite(log2(ratio)), is.finite(-log10(pvals_not_adj)))  # drop any Inf or NaN
-    # We color by highlight_col (TRUE/FALSE).
-    color_aes   <- aes(color = !!sym(highlight_col), text = tooltip_txt)
-    color_scale <- scale_color_manual(values = scatter_colors, breaks = "TRUE",
-                                      labels = highlight_col) #name = highlight_col)
-    # Legend location: top‐right inside
+      filter(
+        is.finite(.data[[group1]]),
+        is.finite(.data[[group2]])
+      ) %>%
+      arrange(highlight)
+    
+    pvals <- sapply(highlight_cols, function(flag) {
+      x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
+      y <- comparison_df$log2ratio
+      # if you prefer, you could subset y to only non-flag too:
+      # y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+      w <- wilcox.test(x, y)
+      w$p.value
+    })
+    pvals_adj <- p.adjust(pvals, method = "BH")
+    fmt_p <- formatC(pvals_adj, format="e", digits=1) # e.g. "1.2e-03" → "1.2×10⁻³"
+    #fmt_p <- sub("e([-+]?)([0-9]+)$", "×10\\^\\2", fmt_p)
+    legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
+    
+    # colors: user‐supplied or a simple default palette
+    if (is.null(highlight_colors)) {
+      # pick a palette for the flags
+      palette_vals <- setNames(
+        RColorBrewer::brewer.pal(
+          n = max(length(highlight_cols), 8),
+          name = "Set2"
+        )[1:length(highlight_cols)],
+        highlight_cols
+      )
+    } else {
+      palette_vals <- highlight_colors
+    }
+    manual_vals <- c(
+      none     = default_color,
+      #multiple = multiple_color,
+      palette_vals
+    )
+    
+    color_aes   <- aes(color = highlight, text = tooltip_txt)
+    color_scale <- scale_color_manual(
+      name   = NULL,
+      values = manual_vals,
+      #limits = levels_needed,    # ← ensures “none” is the first group drawn
+      breaks = highlight_cols,
+      labels = legend_labels
+      #labels = c("Milk allergens", "Enterovirus", "Bacteriodes")
+    )
     legend_theme <- theme(
-      legend.position      = c(0.97, 0.97),
-      legend.justification = c(1, 1),
+      #legend.position   = "top",            # place above the plot
+      #legend.justification = "center",      # center it
+      legend.position     = c(0, 1),   # 50% across, 95% up
+      legend.justification = c(0, 1),  
+      #legend.direction  = "horizontal",     # lay keys out side-by
       legend.background    = element_rect(fill = alpha("white", 0.8), color = "gray80"),
       legend.key.size      = unit(10, "pt"),
-      legend.text          = element_text(size = 8),
+      legend.text          = element_text(size = 9),
       legend.title         = element_text(size = 9, face = "bold")
     )
     show_legend <- TRUE
+    names(legend_labels) <- highlight_cols
+    
   } else {
-    comparison_df <-  comparison_df %>%
+    # no highlights requested → fall back to your old categories logic
+    comparison_df <- comparison_df %>%
       mutate(
-        # Build a tooltip text only for the “significant” categories
         tooltip_txt = ifelse(
           categories == "not significant",
           NA_character_,
           paste0(
-            "Peptide: ",     Peptide,      "<br>",
-            "Desc: ",        Description,  "<br>",
-            "Organism: ",    Organism_complete_name, "<br>",
-            group1, ": ",    !!sym(group1), " / ",
-            group2, ": ",    !!sym(group2), "<br>"
+            "Peptide: ",  Peptide,               "<br>",
+            "Desc: ",     Description,           "<br>",
+            "Organism: ", Organism_complete_name,"<br>",
+            group1, ": ", !!sym(group1), " / ",
+            group2, ": ", !!sym(group2)
           )
         )
       ) %>%
-      filter(is.finite(log2(ratio)), is.finite(-log10(pvals_not_adj)))  # drop any Inf or NaN
+      filter(
+        is.finite(.data[[group1]]),
+        is.finite(.data[[group2]])
+      )
     
     color_aes   <- aes(color = categories, text = tooltip_txt)
-    color_scale <- scale_color_manual(values = scatter_colors, name = NULL)
-    
+    color_scale <- scale_color_manual(
+      values = significant_colors, 
+      labels = c("ns", "significant", "significant FDR"),
+      name = NULL)
     legend_theme <- theme(legend.position = "none")
-    show_legend <- FALSE
+    show_legend  <- FALSE
   }
   
-
-  
-  # Generate scatter plot for the comparison
-  p <- ggplot(comparison_df, aes(x = !!sym(group1), y = !!sym(group2)) ) +
-    
+  # build the ggplot + ggplotly -----------------------------------------------
+  p <- ggplot(comparison_df,
+              aes(x = !!sym(group1), y = !!sym(group2))) +
     geom_point(color_aes, alpha = 0.65) +
     color_scale +
-    labs(x = paste0("% ", group1, " in whom\na peptide is significantly bound\n(n = ",
-                    N[1], ")"),
-         y = paste0("% ", group2, " in whom\na peptide is significantly bound\n(n = ", 
-                    N[2], ")")
+    labs(
+      x = paste0("% ", group1, " in whom\na peptide is significantly bound\n(n = ", N[1], ")"),
+      y = paste0("% ", group2, " in whom\na peptide is significantly bound\n(n = ", N[2], ")")
     ) +
-    theme_bw(base_size = 12) +  # Use a minimal theme for elegance and set a base font size
+    theme_bw(base_size = 12) +
     theme(
-      #legend.position = "none",
-      aspect.ratio = 1,
-      panel.grid.major = element_blank(),  # Remove major grid lines
-      panel.grid.minor = element_blank(),  # Remove minor grid lines
-      panel.border = element_rect(colour = "black", fill = NA),  # Keep border if desired
-      plot.margin = margin(t = 10, r = 15, b = 15, l = 10, unit = "pt"),  # Adjust margins in point
-      axis.text.y.left = element_text(size = 10, face = "italic"),  # Style y-axis labels
-      #axis.ticks.y.right = element_blank(),  # Remove right-side y-axis ticks
-      axis.title.x = element_text(face = "bold"),  # Add margin and bold to x-axis title
-      axis.title.y = element_text(face = "bold")  # Bold y-axis title
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border     = element_rect(colour = "black", fill = NA),
+      plot.margin      = margin(t = 10, r = 15, b = 15, l = 10, unit = "pt"),
+      axis.text.y.left = element_text(size = 10, face = "italic"),
+      axis.title.x     = element_text(face = "bold"),
+      axis.title.y     = element_text(face = "bold")
     ) +
     legend_theme
   
-  # Convert to plotly for interactivity
-  interactive_plot <- ggplotly(p, tooltip = c("text")) %>% 
-    layout(
-      showlegend = show_legend,
-      margin = list(l = 80, r = 80, b = 80, t = 80, pad = 0),
-      height = 550,  # Define the plot height in pixels
-      width = 550,
-      hoverlabel = list(font = list(size = 10)),
-      xaxis = list(#range = c(-2, 102),
-        scaleratio = 1,
-        scaleanchor = "y"
-      ),
-      yaxis = list(#range = c(-2, 102), 
-        scaleratio = 1,
-        scaleanchor = "x"),
-      legend        = if (show_legend) list(
-        x           = 0.02,
-        y           = 0.98,
-        xanchor     = "left",
-        yanchor     = "top",
-        bgcolor     = "rgba(255,255,255,0.8)",
-        bordercolor = "gray80",
-        borderwidth = 0,
-        font        = list(size = 9)
-      ) else NULL
-    )    
-  return(interactive_plot)
+  if (interactive){
+    interactive_plot <- ggplotly(p, tooltip = "text",
+                                 width   = 550, height  = 550)
+    
+    
+    if (!is.null(highlight_cols) && length(highlight_cols) > 0) {
+      # only then do the trace‐name patching:
+      for (i in seq_along(interactive_plot$x$data)) {
+        tr    <- interactive_plot$x$data[[i]]
+        nm    <- tr$name
+        # hide the greys
+        if (nm %in% c("none","multiple")) {
+          tr$showlegend <- FALSE
+        }
+        # relabel the real flags
+        else if (nm %in% highlight_cols) {
+          tr$name <- legend_labels[[nm]]
+        }
+        interactive_plot$x$data[[i]] <- tr
+      }
+    }
+    
+    return(
+      interactive_plot %>% layout(
+        showlegend = show_legend,
+        legend = list(
+          #orientation = "h",       # horizontal keys
+          x       = 0,       # center
+          xanchor = "left",
+          y       = 1,      # 95% up the plot area
+          yanchor = "top",
+          font        = list(size = 9)
+        ),
+        margin     = list(l = 80, r = 80, b = 80, t = 80, pad = 0),
+        hoverlabel = list(font = list(size = 10)),
+        xaxis      = list(scaleratio = 1, scaleanchor = "y"),
+        yaxis      = list(scaleratio = 1, scaleanchor = "x")
+      )
+    )
+  } else {
+    return(p)
+  }
 }
 
-automate_group_test_analysis <- function(percentage_group_test_list, num_samples_per_group) {
+
+# make_interactive_scatterplot <- function(comparison_df, group1, group2, N,
+#                                          highlight_col   = NULL,
+#                                          scatter_colors = c(
+#                                            "not significant"                 = "dodgerblue",
+#                                            "significant prior correction"    = "forestgreen",
+#                                            "significant post FDR correction" = "firebrick"
+#                                          )){
+#   # 2) Decide on the aesthetic mapping for color:
+#   if (!is.null(highlight_col) && highlight_col %in% names(comparison_df)) {
+#     comparison_df <-  comparison_df %>%
+#       mutate(
+#         # Build a tooltip text only for the “significant” categories
+#         tooltip_txt = ifelse(
+#           !!sym(highlight_col) == FALSE,
+#           NA_character_,
+#           paste0(
+#             "Peptide: ",     Peptide,      "<br>",
+#             "Desc: ",        Description,  "<br>",
+#             "Organism: ",    Organism_complete_name, "<br>",
+#             group1, ": ",    !!sym(group1), " / ",
+#             group2, ": ",    !!sym(group2), "<br>"
+#           )
+#         )
+#       ) %>%
+#       filter(is.finite(log2(ratio)), is.finite(-log10(pvals_not_adj)))  # drop any Inf or NaN
+#     # We color by highlight_col (TRUE/FALSE).
+#     color_aes   <- aes(color = !!sym(highlight_col), text = tooltip_txt)
+#     color_scale <- scale_color_manual(values = scatter_colors, breaks = "TRUE",
+#                                       labels = highlight_col) #name = highlight_col)
+#     # Legend location: top‐right inside
+#     legend_theme <- theme(
+#       legend.position      = c(0.97, 0.97),
+#       legend.justification = c(1, 1),
+#       legend.background    = element_rect(fill = alpha("white", 0.8), color = "gray80"),
+#       legend.key.size      = unit(10, "pt"),
+#       legend.text          = element_text(size = 8),
+#       legend.title         = element_text(size = 9, face = "bold")
+#     )
+#     show_legend <- TRUE
+#   } else {
+#     comparison_df <-  comparison_df %>%
+#       mutate(
+#         # Build a tooltip text only for the “significant” categories
+#         tooltip_txt = ifelse(
+#           categories == "not significant",
+#           NA_character_,
+#           paste0(
+#             "Peptide: ",     Peptide,      "<br>",
+#             "Desc: ",        Description,  "<br>",
+#             "Organism: ",    Organism_complete_name, "<br>",
+#             group1, ": ",    !!sym(group1), " / ",
+#             group2, ": ",    !!sym(group2), "<br>"
+#           )
+#         )
+#       ) %>%
+#       filter(is.finite(log2(ratio)), is.finite(-log10(pvals_not_adj)))  # drop any Inf or NaN
+#     
+#     color_aes   <- aes(color = categories, text = tooltip_txt)
+#     color_scale <- scale_color_manual(values = scatter_colors, name = NULL)
+#     
+#     legend_theme <- theme(legend.position = "none")
+#     show_legend <- FALSE
+#   }
+#   
+# 
+#   
+#   # Generate scatter plot for the comparison
+#   p <- ggplot(comparison_df, aes(x = !!sym(group1), y = !!sym(group2)) ) +
+#     
+#     geom_point(color_aes, alpha = 0.65) +
+#     color_scale +
+#     labs(x = paste0("% ", group1, " in whom\na peptide is significantly bound\n(n = ",
+#                     N[1], ")"),
+#          y = paste0("% ", group2, " in whom\na peptide is significantly bound\n(n = ", 
+#                     N[2], ")")
+#     ) +
+#     theme_bw(base_size = 12) +  # Use a minimal theme for elegance and set a base font size
+#     theme(
+#       #legend.position = "none",
+#       #aspect.ratio = 1,
+#       panel.grid.major = element_blank(),  # Remove major grid lines
+#       panel.grid.minor = element_blank(),  # Remove minor grid lines
+#       panel.border = element_rect(colour = "black", fill = NA),  # Keep border if desired
+#       plot.margin = margin(t = 10, r = 15, b = 15, l = 10, unit = "pt"),  # Adjust margins in point
+#       axis.text.y.left = element_text(size = 10, face = "italic"),  # Style y-axis labels
+#       #axis.ticks.y.right = element_blank(),  # Remove right-side y-axis ticks
+#       axis.title.x = element_text(face = "bold"),  # Add margin and bold to x-axis title
+#       axis.title.y = element_text(face = "bold")  # Bold y-axis title
+#     ) +
+#     legend_theme
+#   
+#   # Convert to plotly for interactivity
+#   interactive_plot <- ggplotly(p, tooltip = c("text")) %>% 
+#     layout(
+#       showlegend = show_legend,
+#       margin = list(l = 80, r = 80, b = 80, t = 80, pad = 0),
+#       height = 550,  # Define the plot height in pixels
+#       width = 550,
+#       hoverlabel = list(font = list(size = 10)),
+#       xaxis = list(#range = c(-2, 102),
+#         scaleratio = 1,
+#         scaleanchor = "y"
+#       ),
+#       yaxis = list(#range = c(-2, 102), 
+#         scaleratio = 1,
+#         scaleanchor = "x"),
+#       legend        = if (show_legend) list(
+#         x           = 0.02,
+#         y           = 0.98,
+#         xanchor     = "left",
+#         yanchor     = "top",
+#         bgcolor     = "rgba(255,255,255,0.8)",
+#         bordercolor = "gray80",
+#         borderwidth = 0,
+#         font        = list(size = 9)
+#       ) else NULL
+#     )    
+#   return(interactive_plot)
+# }
+
+automate_group_test_analysis <- function(percentage_group_test_list, num_samples_per_group,
+                                         prevalence_threshold = 5) {
   results_list <- list()
   
   # Loop through each group_test column in the list
@@ -503,18 +757,31 @@ automate_group_test_analysis <- function(percentage_group_test_list, num_samples
         N1 <- num_samples_per_group[[group_col]][[group1]]
         N2 <- num_samples_per_group[[group_col]][[group2]]
 
+        # ——— apply pairwise prevalence filter ——————————————
+        df_pair <- df %>%
+          # keep only peptides with >= threshold in at least one of the two
+          filter(
+            .data[[ group1 ]] >= prevalence_threshold |
+              .data[[ group2 ]] >= prevalence_threshold
+          )
+        if (nrow(df_pair) == 0) {
+          warning("No peptides pass the prevalence filter for ", 
+                  group1, " vs ", group2)
+          next
+        }
+        
         # Calculate p-values and ratios for each pair of groups
-        delta_ratio_vals <- numeric(nrow(df))
-        ratio_vals       <- numeric(nrow(df))
-        pvals_chisq      <- numeric(nrow(df))
+        delta_ratio_vals <- numeric(nrow(df_pair))
+        ratio_vals       <- numeric(nrow(df_pair))
+        pvals_chisq      <- numeric(nrow(df_pair))
         epsilon_prop      <- 0.5
         epsilon_delta    <- 1
         
         # Loop over each row in the filtered dataframe
-        for (k in 1:nrow(df)) {
+        for (k in 1:nrow(df_pair)) {
           # Extract the values for the two groups being compared
-          val1 <- df[[paste0(group1, "_count")]][k]
-          val2 <- df[[paste0(group2, "_count")]][k]
+          val1 <- df_pair[[paste0(group1, "_count")]][k]
+          val2 <- df_pair[[paste0(group2, "_count")]][k]
           
           # Construct the contingency table using counts from num_samples_per_group
           chitable <- matrix(c(val1 + 1, N1 - val1 + 1, 
@@ -524,7 +791,7 @@ automate_group_test_analysis <- function(percentage_group_test_list, num_samples
           # Chi-squared test 
           #pvals_chisq[k] < chisq.test(chitable)$p.value
 
-          # Chi-squared test 
+          # Fisher test 
           test_result <- fisher.test(chitable)
           pvals_chisq[k] <- test_result$p.value
           
@@ -546,12 +813,11 @@ automate_group_test_analysis <- function(percentage_group_test_list, num_samples
         }
         
         # Add p-values and ratios to the dataframe
-        comparison_df <- df %>%
+        comparison_df <- df_pair %>%
           mutate(
             Delta_ratio = delta_ratio_vals,
             ratio = ratio_vals,
             pvals_not_adj = pvals_chisq
-            
           ) %>%
           mutate(
             passed_not_adj = ifelse(pvals_not_adj < 0.05, TRUE, FALSE),
@@ -596,73 +862,160 @@ automate_group_test_analysis <- function(percentage_group_test_list, num_samples
 #########################################
 ############ Volcano plot ###############
 #########################################
-
 make_interactive_volcano <- function(comparison_df, group1, group2,
                                      fc_cut = 1,
                                      p_cut  = 0.05,
-                                     highlight_col   = NULL,
-                                     volcano_colors = c(
+                                     highlight_cols   = NULL,
+                                     highlight_colors = NULL,
+                                     default_color    = "gray70",
+                                     significant_colors = c(
                                        "not significant"                 = "dodgerblue",
                                        "significant prior correction"    = "forestgreen",
-                                       "significant post FDR correction" = "firebrick"
-                                     )){
-
-  # 2) Decide on the aesthetic mapping for color:
-  if (!is.null(highlight_col) && highlight_col %in% names(comparison_df)) {
-    comparison_df <-  comparison_df %>%
+                                       "significant post FDR correction" = "firebrick"),
+                                     interactive = TRUE){
+  
+  # sanity-check:
+  if (!is.null(highlight_cols)) {
+    missing_cols <- setdiff(highlight_cols, names(comparison_df))
+    if (length(missing_cols)) {
+      stop("These highlight_cols are not in your data frame: ",
+           paste(missing_cols, collapse = ", "))
+    }
+  }
+  
+  # build the collapsed factor ------------------------------------------------
+  if (!is.null(highlight_cols) && length(highlight_cols) > 0) {
+    plotly_width <- 650
+    margins <- list(l   = 80, r   = 120, t   = 80, b   = 40, pad = 0)
+    comparison_df <- comparison_df %>%
+      rowwise() %>%
       mutate(
-        # Build a tooltip text only for the “significant” categories
-        tooltip_txt = ifelse(
-          !!sym(highlight_col) == FALSE,
+        # collect the names of all TRUE flags in this row:
+        .trues = list(highlight_cols[ c_across(all_of(highlight_cols)) ]),
+        # now assign highlight:
+        highlight = if (length(.trues) == 0) {
+          "none"
+        } else if (length(.trues) >= 1) {
+          .trues[[1]]
+        } #else {
+        #"multiple"}
+      ) %>%
+      ungroup() %>%
+      select(-.trues) 
+    
+    # ensure factor has all levels:
+    levels_needed <- c("none", highlight_cols) #multiple
+    comparison_df$highlight <- factor(
+      comparison_df$highlight,
+      levels = levels_needed
+    )
+    # build tooltip (only for highlighted points)
+    comparison_df <- comparison_df %>%
+      mutate(
+        log2ratio = log2( ratio ),
+        tooltip_txt = if_else(
+          highlight == "none",
           NA_character_,
           paste0(
-            "Peptide: ",     Peptide,      "<br>",
-            "Desc: ",        Description,  "<br>",
-            "Organism: ",    Organism_complete_name, "<br>",
-            group1, ": ",    !!sym(group1), " / ",
-            group2, ": ",    !!sym(group2), "<br>"
+            "Peptide: ",  Peptide,               "<br>",
+            "Desc: ",     Description,           "<br>",
+            "Organism: ", Organism_complete_name,"<br>",
+            group1, ": ", !!sym(group1), " / ",
+            group2, ": ", !!sym(group2),       "<br>",
+            "Highlight: ", highlight
           )
         )
       ) %>%
-      filter(is.finite(log2(ratio)), is.finite(-log10(pvals_not_adj)))  # drop any Inf or NaN
-    # We color by highlight_col (TRUE/FALSE).
-    color_aes   <- aes(color = !!sym(highlight_col), text = tooltip_txt)
-    color_scale <- scale_color_manual(values = volcano_colors, breaks = "TRUE",
-                                      labels = highlight_col) #name = highlight_col)
-    # Legend location: top‐right inside
+      filter(is.finite(log2ratio), is.finite(-log10(pvals_not_adj))) %>%  # drop any Inf or NaN 
+      arrange(highlight)
+    
+    pvals <- sapply(highlight_cols, function(flag) {
+      x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
+      y <- comparison_df$log2ratio
+      # if you prefer, you could subset y to only non-flag too:
+      # y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+      w <- wilcox.test(x, y)
+      w$p.value
+    })
+    pvals_adj <- p.adjust(pvals, method = "BH")
+    fmt_p <- formatC(pvals_adj, format="e", digits=1) # e.g. "1.2e-03" → "1.2×10⁻³"
+    #fmt_p <- sub("e([-+]?)([0-9]+)$", "×10\\^\\2", fmt_p)
+    legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
+    
+    # colors: user‐supplied or a simple default palette
+    if (is.null(highlight_colors)) {
+      # pick a palette for the flags
+      palette_vals <- setNames(
+        RColorBrewer::brewer.pal(
+          n = max(length(highlight_cols), 8),
+          name = "Set2"
+        )[1:length(highlight_cols)],
+        highlight_cols
+      )
+    } else {
+      palette_vals <- highlight_colors
+    }
+    manual_vals <- c(
+      none     = default_color,
+      #multiple = multiple_color,
+      palette_vals
+    )
+    
+    color_aes   <- aes(color = highlight, text = tooltip_txt)
+    color_scale <- scale_color_manual(
+      name   = NULL,
+      values = manual_vals,
+      #limits = levels_needed,    # ← ensures “none” is the first group drawn
+      breaks = highlight_cols,
+      labels = legend_labels
+      #labels = c("Milk allergens", "Enterovirus", "Bacteriodes")
+    )
     legend_theme <- theme(
-      legend.position      = c(0.97, 0.97),
-      legend.justification = c(1, 1),
+      #legend.position   = "top",            # place above the plot
+      #legend.justification = "center",      # center it
+      legend.position     = c(0, 1),   # 50% across, 95% up
+      legend.justification = c(0, 1),  
+      #legend.direction  = "horizontal",     # lay keys out side-by
       legend.background    = element_rect(fill = alpha("white", 0.8), color = "gray80"),
       legend.key.size      = unit(10, "pt"),
       legend.text          = element_text(size = 8),
       legend.title         = element_text(size = 9, face = "bold")
     )
     show_legend <- TRUE
+    names(legend_labels) <- highlight_cols
+    
   } else {
-    comparison_df <-  comparison_df %>%
+    # no highlights requested → fall back to your old categories logic
+    plotly_width <- 500
+    margins <- list(l = 0, r = 0, t = 0, b = 0, pad = 2)
+    comparison_df <- comparison_df %>%
       mutate(
-        # Build a tooltip text only for the “significant” categories
         tooltip_txt = ifelse(
           categories == "not significant",
           NA_character_,
           paste0(
-            "Peptide: ",     Peptide,      "<br>",
-            "Desc: ",        Description,  "<br>",
-            "Organism: ",    Organism_complete_name, "<br>",
-            group1, ": ",    !!sym(group1), " / ",
-            group2, ": ",    !!sym(group2), "<br>"
+            "Peptide: ",  Peptide,               "<br>",
+            "Desc: ",     Description,           "<br>",
+            "Organism: ", Organism_complete_name,"<br>",
+            group1, ": ", !!sym(group1), " / ",
+            group2, ": ", !!sym(group2)
           )
         )
       ) %>%
-      filter(is.finite(log2(ratio)), is.finite(-log10(pvals_not_adj)))  # drop any Inf or NaN
-
-    color_aes   <- aes(color = categories, text = tooltip_txt)
-    color_scale <- scale_color_manual(values = volcano_colors,name = NULL)
+      filter(
+        is.finite(.data[[group1]]),
+        is.finite(.data[[group2]])
+      )
     
+    color_aes   <- aes(color = categories, text = tooltip_txt)
+    color_scale <- scale_color_manual(
+      values = significant_colors, 
+      labels = c("ns", "significant", "significant FDR"),
+      name = NULL)
     legend_theme <- theme(legend.position = "none")
-    show_legend <- FALSE
+    show_legend  <- FALSE
   }
+  
   
   p <- ggplot(comparison_df, aes(x = log2(ratio), y=-log10(pvals_not_adj))) +
     
@@ -695,34 +1048,55 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
     ) +
     legend_theme
   
-  # Convert to plotly for interactivity
-  #interactive_plot <- ggplotly(p, tooltip = c("Peptide", "Description", "Organism", group1, group2)) %>%
-  interactive_plot <- ggplotly(p, tooltip = c("text", "x", "y")) %>%
-    layout(
-      showlegend  = show_legend,
-      autosize    = FALSE,
-      width       = 500,  # fixed square pixel width
-      height      = 500,  # fixed square pixel height
-      hoverlabel  = list(font = list(size = 10)),
-      xaxis       = list(automargin = TRUE),
-      yaxis       = list(automargin = TRUE,
-                         title      = list(standoff = 10)),
-      margin      = list(l = 0, r = 0, t = 0, b = 0, pad = 2),
-      
-      legend        = if (show_legend) list(
-        x           = 0.98,
-        y           = 0.98,
-        xanchor     = "right",
-        yanchor     = "top",
-        bgcolor     = "rgba(255,255,255,0.8)",
-        bordercolor = "gray80",
-        borderwidth = 0,
-        font        = list(size = 9)
-      ) else NULL
+  if (interactive){
+    interactive_plot <- ggplotly(p, tooltip = c("text", "x", "y"),
+                                 width   = plotly_width, height  = 500)
+    
+    
+    if (!is.null(highlight_cols) && length(highlight_cols) > 0) {
+      # only then do the trace‐name patching:
+      for (i in seq_along(interactive_plot$x$data)) {
+        tr    <- interactive_plot$x$data[[i]]
+        nm    <- tr$name
+        # hide the greys
+        if (nm %in% c("none","multiple")) {
+          tr$showlegend <- FALSE
+        }
+        # relabel the real flags
+        else if (nm %in% highlight_cols) {
+          tr$name <- legend_labels[[nm]]
+        }
+        interactive_plot$x$data[[i]] <- tr
+      }
+    }
+    
+    return(
+      interactive_plot %>% layout(
+        showlegend = show_legend,
+        legend = list(
+          #orientation = "h",       # horizontal keys
+          x       = 1.02,       # center
+          xanchor = "left",
+          y       = 1,      # 95% up the plot area
+          yanchor = "top",
+          # bgcolor     = "rgba(255,255,255,0.8)",
+          # bordercolor = "gray80",
+          # borderwidth = 0,
+          font        = list(size = 9)
+        ),
+        #margin      = list(l = 0, r = 0, t = 0, b = 0, pad = 2),
+        margin = margins, #list(l   = 80, r   = 120, t   = 80, b   = 40, pad = 0),
+        hoverlabel  = list(font = list(size = 10)),
+        xaxis       = list(automargin = TRUE),
+        yaxis       = list(automargin = TRUE,
+                           title      = list(standoff = 10)),
+        autosize    = FALSE
+      )
     )
-  return(interactive_plot)
+  } else {
+    return(p)
+  }
 }
-
 
 #########################################
 ###############MDS#######################
@@ -1078,76 +1452,76 @@ plot_correlation_distribution <- function(phiseq_df, metadata,
 ############ ratios subgroups######################
 ###################################################
 
-plot_ratios_by_subgroup <- function(comparison_df, group1, group2, subgroup_lib_df, prevalence_threshold = 5) {
-  # Join peptide subgroup flags
-  long_ratios <- comparison_df %>%
-    mutate(ratio = log2(ratio)) %>% 
-    left_join(subgroup_lib_df, by = "Peptide") %>%
-    tidyr::pivot_longer(cols = all_of(SUBGROUPS_TO_INCLUDE),
-                        names_to = "subgroup_flag",
-                        values_to = "belongs_to_group") %>%
-    dplyr::filter(belongs_to_group) %>%
-    mutate(subgroup = factor(SUBGROUPS_TO_NAME[subgroup_flag],
-                             levels = SUBGROUPS_ORDER)) %>%
-    dplyr::filter(.data[[group1]] >= prevalence_threshold | .data[[group2]] >= prevalence_threshold)
-  
-  
-  # Skip empty plots
-  if (nrow(long_ratios) < 10) {
-    warning("Not enough data for ", group1, " vs ", group2)
-    return(NULL)
-  }
-  
-  # Get pairwise subgroup comparisons
-  subgroup_labels <- levels(long_ratios$subgroup)
-  pairwise_combos <- combn(subgroup_labels, 2, simplify = FALSE)
-  
-  # Get significant pairs
-  sig_comparisons <- ggpubr::compare_means(
-    formula = ratio ~ subgroup,
-    data = long_ratios,
-    method = "wilcox.test",
-    comparisons = pairwise_combos,
-    p.adjust.method = "bonferroni"
-  ) %>% filter(p.adj < 0.01)
-  
-  # Format for stat_compare_means
-  sig_pairs <- lapply(seq_len(nrow(sig_comparisons)), function(i) {
-    c(sig_comparisons$group1[i], sig_comparisons$group2[i])
-  })
-  
-  # Plot
-  p <- ggplot(long_ratios, aes(x = subgroup, y = ratio, fill = subgroup)) +
-    geom_boxplot(outlier.shape = 21, outlier.size = 1, width = 0.6) +
-    scale_fill_brewer(palette = "Paired") +
-    ggpubr::stat_compare_means(
-      method = "wilcox.test",
-      comparisons = sig_pairs,
-      p.adjust.method = "BH",
-      label = "p.signif",
-      hide.ns = TRUE,
-      size = 4
-    ) +
-    theme_bw() +
-    theme(
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      legend.position = "none"
-    ) +
-    labs(
-      x = "Subgroups of the antigen library",
-      y = paste("log-ratio of antibody responses\nin", group1, "and", group2, sept=" ")
-    )
-  
-  return(p)
-}
+# plot_ratios_by_subgroup <- function(comparison_df, group1, group2, subgroup_lib_df, prevalence_threshold = 5) {
+#   # Join peptide subgroup flags
+#   long_ratios <- comparison_df %>%
+#     mutate(ratio = log2(ratio)) %>% 
+#     left_join(subgroup_lib_df, by = "Peptide") %>%
+#     tidyr::pivot_longer(cols = all_of(SUBGROUPS_TO_INCLUDE),
+#                         names_to = "subgroup_flag",
+#                         values_to = "belongs_to_group") %>%
+#     dplyr::filter(belongs_to_group) %>%
+#     mutate(subgroup = factor(SUBGROUPS_TO_NAME[subgroup_flag],
+#                              levels = SUBGROUPS_ORDER)) %>%
+#     dplyr::filter(.data[[group1]] >= prevalence_threshold | .data[[group2]] >= prevalence_threshold)
+#   
+#   
+#   # Skip empty plots
+#   if (nrow(long_ratios) < 10) {
+#     warning("Not enough data for ", group1, " vs ", group2)
+#     return(NULL)
+#   }
+#   
+#   # Get pairwise subgroup comparisons
+#   subgroup_labels <- levels(long_ratios$subgroup)
+#   pairwise_combos <- combn(subgroup_labels, 2, simplify = FALSE)
+#   
+#   # Get significant pairs
+#   sig_comparisons <- ggpubr::compare_means(
+#     formula = ratio ~ subgroup,
+#     data = long_ratios,
+#     method = "wilcox.test",
+#     comparisons = pairwise_combos,
+#     p.adjust.method = "bonferroni"
+#   ) %>% filter(p.adj < 0.01)
+#   
+#   # Format for stat_compare_means
+#   sig_pairs <- lapply(seq_len(nrow(sig_comparisons)), function(i) {
+#     c(sig_comparisons$group1[i], sig_comparisons$group2[i])
+#   })
+#   
+#   # Plot
+#   p <- ggplot(long_ratios, aes(x = subgroup, y = ratio, fill = subgroup)) +
+#     geom_boxplot(outlier.shape = 21, outlier.size = 1, width = 0.6) +
+#     scale_fill_brewer(palette = "Paired") +
+#     ggpubr::stat_compare_means(
+#       method = "wilcox.test",
+#       comparisons = sig_pairs,
+#       p.adjust.method = "BH",
+#       label = "p.signif",
+#       hide.ns = TRUE,
+#       size = 4
+#     ) +
+#     theme_bw() +
+#     theme(
+#       axis.text.x = element_text(angle = 45, hjust = 1),
+#       legend.position = "none"
+#     ) +
+#     labs(
+#       x = "Subgroups of the antigen library",
+#       y = paste("log-ratio of antibody responses\nin", group1, "and", group2, sept=" ")
+#     )
+#   
+#   return(p)
+# }
 
-
-
-plot_ratios_by_subgroup_kruskal_dunn <- function(comparison_df,
+plot_ratios_by_subgroup <- function(comparison_df,
                               group1, group2,
                               subgroup_lib_df, custom_colors,
+                              subgroup_colors = NULL,
                               prevalence_threshold = 5,
-                              min_peptides = 5, add_subgroups = NULL) {
+                              #min_peptides = 5, 
+                              add_subgroups = NULL) {
   
 
   subgroups_to_include = SUBGROUPS_TO_INCLUDE
@@ -1188,8 +1562,9 @@ plot_ratios_by_subgroup_kruskal_dunn <- function(comparison_df,
   }
   
   posthoc <- long_ratios %>%
-    dunn_test(ratio ~ subgroup, p.adjust.method = "BY") %>%
-    dplyr::filter(n1 >= min_peptides, n2 >= min_peptides) %>%
+    #dunn_test(ratio ~ subgroup, p.adjust.method = "BH") %>%
+    pairwise_wilcox_test(ratio ~ subgroup, p.adjust.method = "BH") %>%  
+    #dplyr::filter(n1 >= min_peptides, n2 >= min_peptides) %>%
     add_significance("p.adj") %>%
     add_xy_position(
       data    = long_ratios,
@@ -1208,11 +1583,31 @@ plot_ratios_by_subgroup_kruskal_dunn <- function(comparison_df,
       mutate(y.position = top + seq_len(n()) * offset)
   }
   
+  if (is.null(subgroup_colors)){
+    color_scale <- scale_fill_brewer(palette = "Paired") 
+  } else{
+    color_scale <- scale_color_manual(values = subgroup_colors)
+  }
+  
+  
+
+  # grab the first up to 9 colours from Paired
+  base_cols <- RColorBrewer::brewer.pal(9, "Paired")
+  names(base_cols) <- subgroups_order[1:9]
+  
+  if (!is.null(subgroup_colors)) {
+    # only keep colours for subgroups we actually plot
+    extra <- subgroup_colors[names(subgroup_colors) %in% subgroups_order]
+    palette_vals <- c(base_cols, extra)[subgroups_order]
+  } else {
+    palette_vals <- base_cols[subgroups_order]
+  }
+  
   p1 <- ggplot(long_ratios, aes(subgroup, ratio, fill = subgroup)) +
     geom_boxplot(outlier.shape = 21, width = 0.6) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "gray1") +
-    scale_fill_brewer(palette = "Paired") +
-    theme_bw(base_size = 10) +
+    scale_fill_manual(values = palette_vals, limits = subgroups_order) +
+    theme_bw(base_size = 11) +
     theme(
       axis.text.x     = element_text(angle = 45, hjust = 1),
       legend.position = "none"
@@ -1221,16 +1616,16 @@ plot_ratios_by_subgroup_kruskal_dunn <- function(comparison_df,
     labs(
       x = "Subgroups of the antigen library",
       y = paste("log₂-ratio of antibody responses\nin", group1, "and", group2, sept=" ")
-    ) +
-    # global KW p-value
-    stat_compare_means(
-      method  = "kruskal.test",
-      label   = "p.format",
-      label.x = 4, #min(long$ratio) * 1.02,
-      #label.x.npc = "centre",
-      label.y.npc = "bottom",
-      size        = 3
-    )
+    )   #+
+    # # global KW p-value
+    # stat_compare_means(
+    #   method  = "kruskal.test",
+    #   label   = "p.format",
+    #   label.x = 4, #min(long$ratio) * 1.02,
+    #   #label.x.npc = "centre",
+    #   label.y.npc = "bottom",
+    #   size        = 3
+    # )
   
   #  Add pairwise stars if any
   # if (nrow(posthoc_filter) > 0) {
@@ -1273,7 +1668,7 @@ plot_ratios_by_subgroup_kruskal_dunn <- function(comparison_df,
     ) +
     labs(x = NULL, y = NULL) +
     #coord_fixed() +
-    theme_minimal(base_size = 10) +
+    theme_minimal(base_size = 11) +
     theme(
       aspect.ratio = 1,
       panel.grid.major = element_blank(),
@@ -1326,8 +1721,70 @@ plot_ratios_by_subgroup_kruskal_dunn <- function(comparison_df,
   combined <- (p3 + p1 + p2) +
     plot_layout(
       ncol   = 3,
-      widths = c(1.4, 1.6, 1.6),
+      widths = c(1.4, 1.7, 1.7),
       #align  = "v"
     )
   return(combined)
+}
+
+
+####################################################
+################## MSA plot ########################
+####################################################
+
+make_flagged_msa_plot <- function(df,
+                                  flag,
+                                  log2_ratio_cut   = 1,
+                                  pval_cut         = 0.05,
+                                  seq_length       = 64,
+                                  coords           = c(NULL, NULL),   # e.g. c(18, 71)
+                                  msa_method       = "Muscle",
+                                  msa_type         = "protein",
+                                  msa_font         = "helvetic",
+                                  msa_color_scheme = "Chemistry_AA",
+                                  msa_char_width   = 0.5
+) {
+  
+  # Filter
+  df_hits <- df %>%
+    mutate(log2ratio = log2(ratio)) %>%
+    filter(
+      !!sym(flag) == TRUE,
+      (log2_ratio_cut >= 0 & log2ratio >  log2_ratio_cut) |
+        (log2_ratio_cut <  0 & log2ratio <  log2_ratio_cut),
+      pvals_not_adj <= pval_cut,
+      nchar(aa_seq) >= seq_length
+    )
+  
+  if (nrow(df_hits) < 2) {
+    stop("Not enough peptides passed the filters.")
+  }
+  
+  # Build AAStringSet
+  seqs <- setNames(df_hits$aa_seq, df_hits$Peptide)
+  aa_set <- Biostrings::AAStringSet(seqs, use.names = TRUE)
+  
+  # MSA
+  aln <- msa::msa(aa_set,
+                  method = msa_method,
+                  type   = msa_type,
+                  order  = "input")
+  class(aln) <- "AAMultipleAlignment"
+  
+  # Plot
+  p <- ggmsa(
+    aln,
+    start = coords[1], end = coords[2],
+    color    = msa_color_scheme,
+    font = msa_font,
+    char_width = msa_char_width, 
+    seq_name = TRUE,
+    consensus_views = TRUE,
+    disagreement = FALSE,
+    ignore_gaps = FALSE
+    ) +
+    geom_seqlogo(color = msa_color_scheme, font = msa_font, adaptive = TRUE) +
+    geom_msaBar() 
+  
+  return (p)
 }

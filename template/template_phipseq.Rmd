@@ -205,7 +205,6 @@ for (group_col in group_cols) {
     tibble::deframe()  # Convert the summarized result to a named vector (group -> count)
 }
 
-prevalence_threshold <- 0
 percentage_group_test_list <- list()
 for (group_col in group_cols){
   percentage_group_test_list[[group_col]] <-  get_count_percentage_df(
@@ -213,9 +212,11 @@ for (group_col in group_cols){
     group_col            = group_col,
     group_cols           = group_cols,
     lib_metadata_df      = lib_metadata_df,
-    prevalence_threshold = prevalence_threshold)
+    prevalence_threshold = 0)
 }
-comparison_group_tests <- automate_group_test_analysis(percentage_group_test_list, num_samples_per_group)
+
+prevalence_threshold <- 0
+comparison_group_tests <- automate_group_test_analysis(percentage_group_test_list, num_samples_per_group, prevalence_threshold)
 ```
 
 
@@ -258,7 +259,7 @@ for (group_col in group_cols) {
 
 ```{r, results='asis'}
 DT::datatable(
-  head(comparison_group_tests[[group_col]][[comparison]]$comparison_df, 300),
+  head(comparison_group_tests[[group_cols[1]]][[comparison]]$comparison_df, 300),
   options = list(
     pageLength = 5,
     scrollX = TRUE,  # enable horizontal scrolling
@@ -286,7 +287,7 @@ ggplotly(p, tooltip = "text") %>%
          width = 600,
          hoverlabel = list(font = list(size = 10)))
 ```
-<div style="height: 50px;"></div>
+<div style="height: 150px;"></div>
 
 
 ```{r, results='asis'}
@@ -397,10 +398,12 @@ plot_correlation_distribution(
 }
 ```
 
+<div style="height: 50px;"></div>
+
 
 # Functional Subgroups in Antigen Library
 
-```{r,  fig.width=11, fig.height=4}
+```{r,  fig.width=12, fig.height=5}
 for (group_col in group_cols) {
   comparisons <- names(comparison_group_tests[[group_col]])
   
@@ -417,8 +420,8 @@ for (group_col in group_cols) {
     output_table <- paste0(out_dir,"/table_peptidesSignificance_",group_col,"_",comp_name,".csv")
     readr::write_csv(comparison_group_tests[[group_col]][[comp_name]]$comparison_df, output_table)
     
-    p <- plot_ratios_by_subgroup_kruskal_dunn(comparison_df, group1, group2, subgroup_lib_df, 
-                                              custom_colors, prevalence_threshold = 5, min_peptides = 5)
+    p <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
+                                              custom_colors, prevalence_threshold = 0)
     
     if (!is.null(p)) {
       print(p)

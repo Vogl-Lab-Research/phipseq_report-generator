@@ -83,12 +83,14 @@ auto_read_csv <- function(path) {
   # choose reader
   if (n_semi > n_comma) {
     message("Detected semicolon-delimited file")
-    df <- read.csv(path, header = TRUE, check.names = FALSE, sep=";")#read_csv2(path, col_names = TRUE, name_repair = "minimal")
+    df <- read.csv(path, header = TRUE, check.names = FALSE, sep=";")
+    #df <- read_csv2(path, col_names = TRUE, name_repair = "minimal")
   } else {
     message("Detected comma-delimited file")
-    df <- read.csv(path, header = TRUE, check.names = FALSE, sep=",") #read_csv(path, col_names = TRUE, name_repair = "minimal")
+    df <- read.csv(path, header = TRUE, check.names = FALSE, sep=",") 
+    #df <- read_csv(path, col_names = TRUE, name_repair = "minimal")
   }
-  df
+  return(df)
 }
 
 # read inputs
