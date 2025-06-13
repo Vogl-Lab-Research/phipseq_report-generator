@@ -730,7 +730,7 @@ make_interactive_scatterplot <- function(comparison_df,
 #   return(interactive_plot)
 # }
 
-automate_group_test_analysis <- function(percentage_group_test_list, num_samples_per_group,
+group_test_analysis <- function(percentage_group_test_list, num_samples_per_group,
                                          prevalence_threshold = 5) {
   results_list <- list()
   
@@ -1565,23 +1565,23 @@ plot_ratios_by_subgroup <- function(comparison_df,
     #dunn_test(ratio ~ subgroup, p.adjust.method = "BH") %>%
     pairwise_wilcox_test(ratio ~ subgroup, p.adjust.method = "BH") %>%  
     #dplyr::filter(n1 >= min_peptides, n2 >= min_peptides) %>%
-    add_significance("p.adj") %>%
-    add_xy_position(
-      data    = long_ratios,
-      formula = ratio ~ subgroup,
-      step.increase = diff(range(long_ratios$ratio)) * 0.1
-    )
+    add_significance("p.adj") #%>%
+    # add_xy_position(
+    #   data    = long_ratios,
+    #   formula = ratio ~ subgroup,
+    #   step.increase = diff(range(long_ratios$ratio)) * 0.1
+    # )
   
-  # 4) Manually compute y positions so they stack
-  if (nrow(posthoc) > 0) {
-    top   <- max(long_ratios$ratio, na.rm = TRUE)
-    # small offset proportional to the data range
-    offset <- diff(range(long_ratios$ratio, na.rm = TRUE)) * 0.1
-    posthoc_filter <- posthoc %>%
-      dplyr::filter(p.adj < 0.01) %>% 
-      arrange(p.adj) %>%
-      mutate(y.position = top + seq_len(n()) * offset)
-  }
+  # Manually compute y positions so they stack
+  # if (nrow(posthoc) > 0) {
+  #   top   <- max(long_ratios$ratio, na.rm = TRUE)
+  #   # small offset proportional to the data range
+  #   offset <- diff(range(long_ratios$ratio, na.rm = TRUE)) * 0.1
+  #   posthoc_filter <- posthoc %>%
+  #     dplyr::filter(p.adj < 0.01) %>% 
+  #     arrange(p.adj) %>%
+  #     mutate(y.position = top + seq_len(n()) * offset)
+  # }
   
   if (is.null(subgroup_colors)){
     color_scale <- scale_fill_brewer(palette = "Paired") 
