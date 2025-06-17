@@ -127,6 +127,7 @@ show_sexAge <- all(required %in% colnames(metadata))
 
 `r if (show_sexAge) "\n# Sex/Age Distribution"` 
 
+Distribution of Sex/Age per group comparisons.
 
 ```{r, fig.height=5, fig.width=8}
 if (show_sexAge) {
@@ -142,6 +143,13 @@ if (show_sexAge) {
 
 
 # Antibody Epitope Repertoire of Samples
+
+
+Antibody epitope repertoires of all individuals or per group recognize private (occurring in single individuals) and public (shared in all of the cohort) antigens.
+
+- Plots shows how often a number of peptides is present only in certain number of individuals per group comparisons.
+
+- Highlighting 5% prevalence filter and the amount of peptides that remain after the filter.
 
 ```{r, fig.height=5, fig.width=7}
 for (group_col in group_cols){
@@ -159,6 +167,8 @@ for (group_col in group_cols){
 
 
 # Enriched Peptides Distribution
+
+The absolute number of antibody-bound peptides per individual between groups.
 
 ```{r}
 # Enriched peptides ----
@@ -178,6 +188,9 @@ for (group_col in group_cols){
 
 # Shanon Diversity
 
+The diversity of Ig repertoires of antibody-bound peptides per individual between patient and control groups.
+
+
 ```{r}
 values_col <- "Shannon_diversity"
 for (group_col in group_cols){
@@ -193,7 +206,7 @@ for (group_col in group_cols){
 ```
 
 
-# Group Peptide Comparisons {.tabset}
+# Peptide Comparison Between Groups {.tabset}
 
 ```{r}
 num_samples_per_group <- list()
@@ -216,11 +229,17 @@ for (group_col in group_cols){
 }
 
 prevalence_threshold <- 0
-comparison_group_tests <- automate_group_test_analysis(percentage_group_test_list, num_samples_per_group, prevalence_threshold)
+comparison_group_tests <- group_test_analysis(percentage_group_test_list, num_samples_per_group, prevalence_threshold)
 ```
 
 
-## Scatterplot
+## Significance
+
+
+- Scatterplots show in green peptides that are significant before multiple testing correction and in red peptides that are significant after correction (BH)
+
+- pvals were calculated using Fisher test comparing peptide prevalence between groups
+
 
 ```{r, results='asis'}
 #group <- names(comparison_group_tests)[1]
@@ -233,24 +252,67 @@ htmltools::tagList(all_plots)
 <div style="height: 50px;"></div>
 
 
-## Volcano plot
+## Highlighted Groups 
 
-```{r, results='asis'}
-volcano_plots <- list()
+Highlighting some virus/bacteria groups
+
+- Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus of interest and the ratio of group1/group1 of the complete library
+
+```{r}
+flags_to_patterns <- list(
+  # Flagellins  = c("Flagell", "aureus"),
+  Bacteriodales = c("Bacteroida", "Bacteroides", "Prevotella"),
+  `Epstein-Barr` = c("Epstein", "EBV"),
+  Enterovirus   = c("Enterovirus")
+  )
+
+highlight_colors <- c(
+  #"Flagellins" = "#7570b3", 
+  "Bacteriodales" = "gold",
+  "Epstein-Barr" = "#1b9e77", "Enterovirus" = "#DC000099"
+  )
+ 
+results_list <- list()
+#group_col <- "group_test"
 for (group_col in group_cols) {
+  scatter_plots <- list()
   comparisons <- names(comparison_group_tests[[group_col]])
   for (comp_name in comparisons) {
     #comp_name <- comparisons[1]
-    groups <- strsplit(comp_name, "_vs_")[[1]]
-    group1 <- groups[1]
-    group2 <- groups[2]
+    groups        <- strsplit(comp_name, "_vs_")[[1]]
+    group1        <- groups[1]
+    group2        <- groups[2]
+    N1 <- num_samples_per_group[[group_col]][[group1]]
+    N2 <- num_samples_per_group[[group_col]][[group2]]
     comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df
-    p <- make_interactive_volcano(comparison_df = comparison_df, group1 = group1, group2 = group2)
-    volcano_plots[[paste0(group1, "_vs_", group2)]] <- list(plot = p %>% htmltools::div(style = "margin-bottom: 150px;"))
-    # ggsave(paste0(group_col, "_", comp_name, "_volcano_plot.png"), p)
+   
+    for(flag in names(flags_to_patterns)){
+      patterns <- flags_to_patterns[[flag]]
+      # (A) Add a new TRUE/FALSE column "flag" by matching those patterns:
+      comparison_df <- comparison_df %>%
+        add_flag_by_patterns(
+          new_flag    = flag,
+          patterns    = patterns,
+          target_cols = c("Organism_complete_name", "Description")
+        )
+    }
+    flags <- names(flags_to_patterns)
+    p <- make_interactive_scatterplot(comparison_df = comparison_df,
+                             group1 = group1, group2 = group2, N = c(N1,N2),
+                             highlight_cols   = flags, 
+                             highlight_colors = highlight_colors,
+                             default_color    = "gray80", 
+                             interactive = T)
+    scatter_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
   }
-  print(htmltools::tagList(volcano_plots))
+  results_list[[group_col]] <- scatter_plots
 }
+
+all_plots <- lapply(results_list[[group_cols[1]]], function(x) {
+  # Adjusting the plot margins to avoid hover text cropping
+  x$plot <- htmltools::div(style = "margin-bottom: 150px;", x$plot)
+})
+htmltools::tagList(all_plots)
 ```
 
 
@@ -272,7 +334,93 @@ DT::datatable(
 
 
 
+# Volcano plot {.tabset}
+
+- A different way to visualize  significant peptides based on the prevalence ratio of two groups and corresponding pvalues (before multiple test correction)
+
+
+## Significance
+
+- pvals were calculated using Fisher test comparing peptide prevalence between groups
+
+```{r, results='asis'}
+volcano_plots <- list()
+for (group_col in group_cols) {
+  comparisons <- names(comparison_group_tests[[group_col]])
+  for (comp_name in comparisons) {
+    #comp_name <- comparisons[1]
+    groups <- strsplit(comp_name, "_vs_")[[1]]
+    group1 <- groups[1]
+    group2 <- groups[2]
+    comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df
+    p <- make_interactive_volcano(comparison_df = comparison_df, group1 = group1, group2 = group2)
+    volcano_plots[[paste0(group1, "_vs_", group2)]] <- list(plot = p %>% htmltools::div(style = "margin-bottom: 150px;"))
+    # ggsave(paste0(group_col, "_", comp_name, "_volcano_plot.png"), p)
+  }
+  print(htmltools::tagList(volcano_plots))
+}
+```
+
+
+## Highlighted Groups 
+
+Highlighting some virus/bacteria groups
+
+- Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus of interest and the ratio of group1/group1 of the complete library
+
+```{r}
+results_list <- list()
+for (group_col in group_cols) {
+  volcano_plots <- list()
+  comparisons <- names(comparison_group_tests[[group_col]])
+  for (comp_name in comparisons) {
+    #comp_name <- comparisons[1]
+    groups        <- strsplit(comp_name, "_vs_")[[1]]
+    group1        <- groups[1]
+    group2        <- groups[2]
+    N1 <- num_samples_per_group[[group_col]][[group1]]
+    N2 <- num_samples_per_group[[group_col]][[group2]]
+    comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df
+   
+    for(flag in names(flags_to_patterns)){
+      patterns <- flags_to_patterns[[flag]]
+      # (A) Add a new TRUE/FALSE column "flag" by matching those patterns:
+      comparison_df <- comparison_df %>%
+        add_flag_by_patterns(
+          new_flag    = flag,
+          patterns    = patterns,
+          target_cols = c("Organism_complete_name", "Description")
+        )
+    }
+    
+    flags <- names(flags_to_patterns)
+    p <- make_interactive_volcano(comparison_df = comparison_df,
+                             group1 = group1, group2 = group2, fc_cut = 1, p_cut = 0.05,
+                             highlight_cols   = flags,  
+                             highlight_colors = highlight_colors,
+                             default_color    = "gray80", 
+                             interactive = T)
+    volcano_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
+  }
+  results_list[[group_col]] <- volcano_plots
+}
+
+all_plots <- lapply(results_list[[group_cols[1]]], function(x) {
+  # Adjusting the plot margins to avoid hover text cropping
+  x$plot <- htmltools::div(style = "margin-bottom: 20px;", x$plot)
+})
+htmltools::tagList(all_plots)
+```
+
 # Multidimensional Scaling (MDS)
+
+
+Unsupervised learning model try to cluster groups based on jaccard distances between individuals 
+
+- A PERMANOVA pval, if significant, tells us the centroids (big data points) of the groups are further apart than expected by chance.
+
+- A dispersion pval, if significatn, says at least one group is significantly more or less “tightly clustered” around its centroid than the others
+
 
 ```{r, results='asis'}
 p <- plot_mds(features_target, group_cols[1], 
@@ -403,6 +551,13 @@ plot_correlation_distribution(
 
 # Functional Subgroups in Antigen Library
 
+- Represent the main antigen subgroups ratio distribution within the library (including bacteria/virus of interest) that exhibits differential binding in both groups
+
+- If ratio is positive between group1/group2, this indicate that group1 (eg. Controls) shows more representation of that peptide subgroup than group2 (e.g disease)
+
+- **This is a stat testing approach, might not work well for small sample sizes or be biased**
+- **By default, a 5% prevalence peptide filter is applied (only dropping peptides below that threshold in both groups)**
+
 ```{r,  fig.width=12, fig.height=5}
 for (group_col in group_cols) {
   comparisons <- names(comparison_group_tests[[group_col]])
@@ -413,15 +568,39 @@ for (group_col in group_cols) {
     group1 <- groups[1]
     group2 <- groups[2]
     comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df[
-      c("Peptide", "Organism_complete_name", group1, group2,
+      c("Peptide", "Organism_complete_name", "Description", group1, group2,
         paste0(group1, "_count"), paste0(group2, "_count"), "ratio")
     ]
     
+    for(flag in names(flags_to_patterns)){
+      patterns <- flags_to_patterns[[flag]]
+      
+      col_flag <- comparison_df %>%
+        add_flag_by_patterns(
+        new_flag    = flag,
+        patterns    = patterns,
+        target_cols = c("Organism_complete_name", "Description")
+      )  %>% 
+        select(Peptide, all_of(flag)) %>%
+        distinct()
+      
+      # Add a new TRUE/FALSE column "flag" by matching those patterns:
+      subgroup_lib_df <- subgroup_lib_df %>% 
+        select(-any_of(flag)) %>%                # remove the column named by `flag` if it exists
+        left_join(col_flag, by = "Peptide")
+    }
+    
     output_table <- paste0(out_dir,"/table_peptidesSignificance_",group_col,"_",comp_name,".csv")
     readr::write_csv(comparison_group_tests[[group_col]][[comp_name]]$comparison_df, output_table)
-    
+
     p <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
-                                              custom_colors, prevalence_threshold = 0)
+                                 custom_colors = custom_colors, 
+                                 subgroup_colors = highlight_colors,
+                                 add_subgroups = names(flags_to_patterns),
+                                 prevalence_threshold = 5
+                                 )
+    # p <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
+    #                                           custom_colors, prevalence_threshold = 0)
     
     if (!is.null(p)) {
       print(p)

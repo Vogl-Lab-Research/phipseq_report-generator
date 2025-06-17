@@ -520,6 +520,8 @@ make_interactive_scatterplot <- function(comparison_df,
       mutate(
         tooltip_txt = ifelse(
           categories == "not significant",
+          #categories == "ns", #"not significant",
+          
           NA_character_,
           paste0(
             "Peptide: ",  Peptide,               "<br>",
@@ -991,6 +993,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
     comparison_df <- comparison_df %>%
       mutate(
         tooltip_txt = ifelse(
+          #categories == "ns", #"not significant",
           categories == "not significant",
           NA_character_,
           paste0(
@@ -1105,7 +1108,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
 
 plot_mds <- function(features_target, group_col, 
                      custom_colors,  group_cols =NA,
-                     method = "jaccard",
+                     method = "jaccard", ellipse = T,
                      permutations = 999) {
   
   # Full matrix sames as exist for the corresponding group and transposed
@@ -1129,28 +1132,50 @@ plot_mds <- function(features_target, group_col,
   permanova <-   vegan::adonis2(dist_all ~ mds_df_all[[group_col]], permutations = permutations)
   p_value <- permanova$`Pr(>F)`[1]
   
+  # Dispersion test
+  bd  <- vegan::betadisper(dist_all, mds_df_all[[group_col]])
+  bt  <- vegan::permutest(bd, permutations=permutations)
+  
   # Centroids for plotting
   centroids <- mds_df_all %>%
     group_by(.data[[group_col]]) %>%
     summarise(V1 = mean(V1), V2 = mean(V2), .groups = "drop")
-  
+  # hulls <- mds_df_all %>%
+  #   group_by(group_test) %>%
+  #   slice(chull(V1, V2))
+
   # Main plot
-  p <- ggplot(mds_df_all, aes(x = V1, y = V2, fill = .data[[group_col]])) +
-    geom_point(size = 3, alpha = 0.5, shape = 21, color = "black",  stroke = 0, aes(text = paste("Sample:", SampleName))) +
+  p <- ggplot(mds_df_all, aes(x = V1, y = V2, fill = .data[[group_col]]))
+  
+  # Conditionally add the ellipse
+  if (ellipse) {
+    p <- p + stat_ellipse(aes(colour = .data[[group_col]]), type = "t", level = 0.95, fill = NA, geom = "path", size = 0.8, alpha = 0.5, show.legend = FALSE)
+  }
+  
+  # Add all the remaining layers, making sure to use + at the end of each line
+  p <- p +  geom_point(size = 3, alpha = 0.5, shape = 21, color = "black",  stroke = 0, aes(text = paste("Sample:", SampleName))) +
     geom_point(data = centroids, aes(x = V1, y = V2, fill = .data[[group_col]]),
                show.legend = FALSE, size = 5, shape = 21, color = "black") +
+    #geom_polygon(data = hulls, aes(x = V1, y = V2, group = .data[[group_col]], color = .data[[group_col]]), fill=NA) +
     scale_fill_manual(values = custom_colors) +
+    scale_color_manual(values = custom_colors) +
+    # Turn off any stray color legend
+    guides(color = "none") +
     labs(
       x = paste0("MDS 1 (", var_exp_all[1], "%)"),
       y = paste0("MDS 2 (", var_exp_all[2], "%)"),
-      title = paste0("MDS (PCoA) with Jaccard Distance\nPERMANOVA p = ", round(p_value, 4),
-                     " | permutations = ", permutations)
-    ) +
+      title = glue::glue(
+        "PERMANOVA p={format(permanova$`Pr(>F)`[1], digits=2)}; dispersion p={format(bt$tab$`Pr(>F)`[1],digits=2)}"
+        )
+      ) +
+    #   title = paste0("MDS (PCoA) with Jaccard Distance\nPERMANOVA p = ", round(p_value, 4),
+    #                  " | permutations = ", permutations)
+    # ) +
     theme_bw() +
     theme(
       plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
     )
-  p
+  return(p)
 }
 
 ####################################
@@ -1757,7 +1782,7 @@ make_flagged_msa_plot <- function(df,
     )
   
   if (nrow(df_hits) < 2) {
-    stop("Not enough peptides passed the filters.")
+    return("Not enough peptides passed the filters.")
   }
   
   # Build AAStringSet

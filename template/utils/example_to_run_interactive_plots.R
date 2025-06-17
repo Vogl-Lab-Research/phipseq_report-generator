@@ -84,7 +84,7 @@ make_interactive_scatterplot(comparison_df = comparison_df,
                              highlight_cols   = flags, 
                              highlight_colors = c(
                                `Milk allergens` = "#1b9e77", Enterovirus = "#d95f02", 
-                               Bacteriodes = "#7570b3",
+                               Bacteriodes = "#7570b3"
                                #`Infectious pathogens` = "gold"
                                ),
                              default_color    = "gray70", 
