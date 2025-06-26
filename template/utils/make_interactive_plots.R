@@ -116,9 +116,9 @@ make_interactive_scatterplot <- function(comparison_df,
     
     pvals <- sapply(highlight_cols, function(flag) {
       x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
-      y <- comparison_df$log2ratio
+      #y <- comparison_df$log2ratio
       # if you prefer, you could subset y to only non-flag too:
-      # y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+      y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
       w <- wilcox.test(x, y)
       w$p.value
     })

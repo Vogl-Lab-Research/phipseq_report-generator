@@ -16,16 +16,16 @@ library("ggmsa")
 
 # Global vars
 
-SUBGROUPS_TO_INCLUDE <- c('all', 
+SUBGROUPS_TO_INCLUDE <- c(#'all', 
                           'is_PNP', 'is_patho', 'is_probio', 'is_MPA', 'is_IgA',
                           'is_bac_flagella',   'is_infect',
                           'is_IEDB_or_cntrl')
-SUBGROUPS_ORDER <- c('Complete library', 
+SUBGROUPS_ORDER <- c(#'Complete library', 
                      'Metagen antigens', 'Pathogenic strains', 'Probiotic strains', 'Microbiota strains',
                      'Antibody-coated strains',  'Flagellins', 'Infectious pathogens',
                      'IEDB/controls')
 SUBGROUPS_TO_NAME <- c(
-  'all' = 'Complete library',
+  #'all' = 'Complete library',
   'is_PNP' = 'Metagen antigens',  'is_patho' = 'Pathogenic strains', 
   'is_probio' = 'Probiotic strains', 'is_MPA' = 'Microbiota strains', 'is_IgA' = 'Antibody-coated strains', 
   'is_bac_flagella' = 'Flagellins', 'is_infect' = 'Infectious pathogens', 
@@ -461,9 +461,9 @@ make_interactive_scatterplot <- function(comparison_df,
     
     pvals <- sapply(highlight_cols, function(flag) {
       x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
-      y <- comparison_df$log2ratio
-      # if you prefer, you could subset y to only non-flag too:
-      # y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+      #y <- comparison_df$log2ratio
+      # better subset y to only non-flag too:
+      y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
       w <- wilcox.test(x, y)
       w$p.value
     })
@@ -933,9 +933,9 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
     
     pvals <- sapply(highlight_cols, function(flag) {
       x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
-      y <- comparison_df$log2ratio
-      # if you prefer, you could subset y to only non-flag too:
-      # y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+      #y <- comparison_df$log2ratio
+      # better subset y to only non-flag too:
+      y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
       w <- wilcox.test(x, y)
       w$p.value
     })
@@ -1553,6 +1553,7 @@ plot_ratios_by_subgroup <- function(comparison_df,
   subgroups_order = SUBGROUPS_ORDER
   subgroups_to_name = SUBGROUPS_TO_NAME
 
+  
   if (!is.null(add_subgroups)) {
     for (flag in add_subgroups) {
       subgroups_to_include = c(subgroups_to_include, flag)
@@ -1586,16 +1587,39 @@ plot_ratios_by_subgroup <- function(comparison_df,
     return(NULL)
   }
   
-  posthoc <- long_ratios %>%
+
+  tmp <- comparison_df %>%
+    mutate(ratio = log2(ratio)) %>% 
+    left_join(subgroup_lib_df, by = "Peptide") %>% 
+    rename(setNames(names(subgroups_to_name), subgroups_to_name))
+  
+  pvals <- sapply(subgroups_order, function(flag) {
+    x <- tmp %>% filter( !!sym(flag) ) %>% pull(log2ratio)
+    y <- tmp %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+    w <- wilcox.test(x, y)
+    w$p.value
+  })
+  rm(tmp)
+  pvals <- p.adjust(pvals, method = "BH")
+  subgroup_vs_rest <- tibble(
+    group2        = names(pvals),
+    group1        = "Complete library*",
+    p.adj         = pvals
+  ) %>%
+    add_significance("p.adj")
+  
+  pairwise_subgroups <- long_ratios %>%
     #dunn_test(ratio ~ subgroup, p.adjust.method = "BH") %>%
     pairwise_wilcox_test(ratio ~ subgroup, p.adjust.method = "BH") %>%  
     #dplyr::filter(n1 >= min_peptides, n2 >= min_peptides) %>%
-    add_significance("p.adj") #%>%
+    add_significance("p.adj") %>%
     # add_xy_position(
     #   data    = long_ratios,
     #   formula = ratio ~ subgroup,
     #   step.increase = diff(range(long_ratios$ratio)) * 0.1
     # )
+    select(all_of(c("group1", "group2", "p.adj", "p.adj.signif"))) %>% 
+    rbind(subgroup_vs_rest)
   
   # Manually compute y positions so they stack
   # if (nrow(posthoc) > 0) {
@@ -1665,9 +1689,8 @@ plot_ratios_by_subgroup <- function(comparison_df,
   #       inherit.aes = FALSE
   #     )
   #}
-  
-  p2 <- ggplot(posthoc, aes(x = group1, y = group2, fill = p.adj.signif)) +
-    geom_tile(color = "grey90", size = 0.2) +
+  p2 <- ggplot(pairwise_subgroups, aes(x = group1, y = group2, fill = p.adj.signif)) +
+    geom_tile(color = "grey90", linewidth = 0.2) +
     geom_text(aes(label = sprintf("%.1g", p.adj)),
               color = "black", size = 1.5) +
     scale_fill_manual(
@@ -1683,12 +1706,12 @@ plot_ratios_by_subgroup <- function(comparison_df,
     ) +
     # Put x-axis on the bottom:
     scale_x_discrete(
-      limits  = subgroups_order,
+      limits  = c("Complete library*",subgroups_order),
       position = "bottom"
     ) +
     # Reverse y so first factor is at the top:
     scale_y_discrete(
-      limits   = rev(subgroups_order),
+      limits   = rev(c("Complete library*",subgroups_order)),
       position = "left"
     ) +
     labs(x = NULL, y = NULL) +
@@ -1708,7 +1731,7 @@ plot_ratios_by_subgroup <- function(comparison_df,
       #legend.text      = element_text(size = 7)
     )
   
-  
+  p2
   # comparison_df has columns Peptide, <group1>_count, <group2>_count
   g1_cnt <- paste0(group1, "_count")
   g2_cnt <- paste0(group2, "_count")

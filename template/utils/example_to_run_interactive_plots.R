@@ -23,7 +23,7 @@ flags_to_patterns <- list(
 )
 
 # Load table with significant peptides group
-comparison_df <- read.csv(paste("reports_Jun13_2025/Tables/table_peptidesSignificance_group_test_", group1,"_vs_", group2,".csv", sep=""))
+comparison_df <- read.csv(paste("../LLNEXT/reports_Jun13_2025/Tables/table_peptidesSignificance_group_test_", group1,"_vs_", group2,".csv", sep=""))
 
 # Look for the patterns in the table and add new columns based on the intersting groups
 for(flag in names(flags_to_patterns)){
@@ -39,21 +39,38 @@ for(flag in names(flags_to_patterns)){
 
 flags <- c(names(flags_to_patterns)) # no extra annotation
 
+
+
+subgroup_lib_df <- readRDS("../phipseq_report-generator/library_meta/all_libraries_with_important_info.rds")  %>%
+  tibble::rownames_to_column(var = "Peptide") %>%
+  mutate(
+    across(
+      all_of(SUBGROUPS_TO_INCLUDE),
+      ~ case_when(
+        is.na(.)                       ~ FALSE,
+        . %in% c(1, "1", TRUE, "True") ~ TRUE,
+        TRUE                           ~ FALSE
+      )
+    ),
+    all = TRUE
+  ) %>%
+  select(Peptide, all_of(SUBGROUPS_TO_INCLUDE)) #%>% 
+  #rename(setNames(names(SUBGROUPS_TO_NAME[-1]), SUBGROUPS_TO_NAME[-1]))
 #############################RUN ONLY IF INCLUDING EXTRA SUBGROUP ANNOTATION#####################################
 # SUBGROUPS_TO_NAME <- c(
-#   'all' = 'Complete library',
+#   #'all' = 'Complete library',
 #   'is_PNP' = 'Metagen antigens',  'is_patho' = 'Pathogenic strains',
 #   'is_probio' = 'Probiotic strains', 'is_MPA' = 'Microbiota strains', 'is_IgA' = 'Antibody-coated strains',
 #   'is_bac_flagella' = 'Flagellins', 'is_infect' = 'Infectious pathogens',
 #   'is_IEDB_or_cntrl' = 'IEDB/controls')
-# actual_subgroup_columns <- setdiff(names(SUBGROUPS_TO_NAME), "all")
+# #actual_subgroup_columns <- setdiff(names(SUBGROUPS_TO_NAME), "all")
 # 
 # #load extra file with the annotation info and format it
 # subgroup_lib_df <- readRDS("../phipseq_report-generator/library_meta/all_libraries_with_important_info.rds") %>%
 #   tibble::rownames_to_column(var = "Peptide") %>%
 #   mutate(
 #     across(
-#       all_of(actual_subgroup_columns),
+#       all_of(SUBGROUPS_TO_NAME),
 #       ~ case_when(
 #         is.na(.)                       ~ FALSE,
 #         . %in% c(1, "1", TRUE, "True") ~ TRUE,

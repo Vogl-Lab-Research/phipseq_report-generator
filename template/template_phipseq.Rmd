@@ -47,12 +47,12 @@ out_dir <- params$out_tables
 # lib_metadata_df  = lib_metadata_df
 # custom_colors = custom_colors
           
-actual_subgroup_columns <- setdiff(names(SUBGROUPS_TO_NAME), "all")
+#actual_subgroup_columns <- setdiff(names(SUBGROUPS_TO_NAME), "all")
 subgroup_lib_df <- lib_metadata_df %>%
   tibble::rownames_to_column(var = "Peptide") %>%
   mutate(
     across(
-      all_of(actual_subgroup_columns),
+      all_of(SUBGROUPS_TO_INCLUDE),
       ~ case_when(
         is.na(.)                       ~ FALSE,
         . %in% c(1, "1", TRUE, "True") ~ TRUE,
