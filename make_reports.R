@@ -90,7 +90,7 @@ extra_syms <- syms(extra_cols)
 args_full <- commandArgs(trailingOnly = FALSE)
 script_path <- dirname(normalizePath(sub("--file=", "", args_full[grep("--file=", args_full)])))
 template <- file.path(script_path, "template/template_phipseq.Rmd") #"template/template_phipseq.Rmd" 
-library_meta <- file.path(script_path, "library_meta/all_libraries_with_important_info.rds") #"library_meta/all_libraries_with_important_info.rds" 
+library_meta <- file.path(script_path, "library_meta/combined_libraries_with_lineages_important_info_nonAAseq.rds") #"library_meta/all_libraries_with_important_info.rds" 
 lib_metadata_df <- readRDS(library_meta)
 
 

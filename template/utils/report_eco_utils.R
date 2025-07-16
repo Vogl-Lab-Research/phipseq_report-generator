@@ -1,4 +1,4 @@
-source("../../phipseq_report-generator/template/utils/report_utils.R")
+source("report_utils.R")
 
 
 # Function to generate count tables per taxonomic rank
@@ -77,17 +77,8 @@ prep_abund_data <- function(ct, sample_meta, group_col = "Group", norm_method = 
   common <- intersect(rownames(mat), sample_meta$SampleName)
   mat         <- mat[common, , drop = FALSE]
 
-  #. normalize
   mat <- normalize_taxa_counts(mat, norm_method)
-  # norm_method <- match.arg(norm_method)
-  # if (norm_method == "relative") {
-  #   mat <- sweep(mat, 1, rowSums(mat), "/")
-  # } else if (norm_method == "hellinger") {
-  #   mat <- decostand(mat, "hellinger")
-  # } else if (norm_method == "log") {
-  #   mat <- log1p(mat)
-  # }
-  # # else norm_method == "none": leave raw counts
+
   
   list(mat = mat, sample_meta = sample_meta)
 }
@@ -119,15 +110,6 @@ compute_beta_diversity <- function(ct, sample_meta, group_col = "Group", method 
   return(list(dist = dist_mat, permanova = perm, pcoa = scores, beta_dispersion = disp, exp_variance = var_exp_all))
 }
 
-
-# nice_p <- function(p, cutoff = 0.001, digits = 3) {
-#   if (is.na(p)) return(NA_character_)
-#   if (p < cutoff) {
-#     paste0("<", format(cutoff, scientific = FALSE, trim = TRUE))
-#   } else {
-#     sprintf(paste0("%.", digits, "f"), p)
-#   }
-# }
 
 
 compute_pca <- function(ct, sample_meta,
