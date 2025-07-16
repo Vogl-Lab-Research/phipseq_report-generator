@@ -1613,8 +1613,7 @@ plot_correlation_distribution <- function(phiseq_df, metadata,
 # }
 
 # Updated plot_ratios_by_subgroup with simplified subgroup logic
-# • which_subgroups = "all" (default), "default", or "added"
-# • show_venn = TRUE/FALSE
+# • which_subgroups = "all" (subgroups + any new organism), "default (only subgroups", or "added (only new organisms"
 plot_ratios_by_subgroup <- function(
     comparison_df,
     group1,

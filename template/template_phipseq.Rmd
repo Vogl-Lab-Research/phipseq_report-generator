@@ -18,6 +18,7 @@ params:
   exist:         NULL    # will be a data.frame of peptides × samples
   comparison:    NULL    # the name of this comparison
   library_meta:  NULL    # will be a data.frame of the library metadata
+  prevalence_threshold: 0 # will be filter applied on peptides based on prevalence
   custom_colors: NULL    # Colors to use for each group
   timepoints:    NULL    # Only passed if data is longitudinal and a ind_timepoint.csv is given
   out_tables:    NULL    # where to save the tables
@@ -30,21 +31,16 @@ knitr::opts_chunk$set(echo  = FALSE, warning = FALSE, message = FALSE
 
 # Load custom utility functions
 #source(file.path("utils", "report_utils.R"))
-source(file.path("utils", "report_eco_utils.R"))
+source(file.path("utils", "report_utils.R"))
 
 # read in the two per‐comparison files
 metadata  <- params$metadata
 exist <- params$exist
 comparison <- params$comparison
 lib_metadata_df <- params$library_meta
+prevalence_threshold <- params$prevalence_threshold
 custom_colors <- params$custom_colors
 out_dir <- params$out_tables
-
-# metadata      = meta_i
-# exist         = exist_i
-# comparison    = name
-
-
 
 
 subgroup_lib_df <- lib_metadata_df %>%
@@ -287,7 +283,7 @@ for (group_col in group_cols){
     prevalence_threshold = 0)
 }
 
-prevalence_threshold <- 0
+prevalence_threshold <- prevalence_threshold
 comparison_group_tests <- group_test_analysis(percentage_group_test_list, num_samples_per_group, prevalence_threshold)
 ```
 
@@ -597,7 +593,7 @@ plot_correlation_distribution(
 
 - **This is a stat testing approach, might not work well for small sample sizes or be biased**
 
-- **By default, a 5% prevalence peptide filter is applied (only dropping peptides below that threshold in both groups)**
+- **By default, a 0% prevalence peptide filter is applied (only dropping peptides below that threshold in both groups)**
 
 
 ```{r sig-subgroups‐all‐ranks, results='asis', fig.width=8, fig.height=8}
@@ -640,14 +636,14 @@ for (rank_level in rank_levels){
       
       p_subgroup <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
                                    custom_colors = custom_colors, 
-                                   prevalence_threshold = 0,
+                                   prevalence_threshold = prevalence_threshold,
                                    which_subgroups = "default"
                                    )
       p_taxa <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
                                    custom_colors = custom_colors, 
                                    subgroup_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors,
                                    add_subgroups = flags,
-                                   prevalence_threshold = 0,
+                                   prevalence_threshold = prevalence_threshold,
                                    which_subgroups = "added",
                                    x_label = paste("Significant", rank_level, "of antigen library", sep = " ")
                                    )

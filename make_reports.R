@@ -36,6 +36,7 @@ cmp_file        <- config$comparisons_file #"../MCI-Dementia/Metadata/MCI_Dement
 samples_file    <- config$samples_file #"../MCI-Dementia/Metadata/MCI_Dementia_cohort_data_v0507.csv"
 exist_file      <- config$exist_file #"../MCI-Dementia/Data/exist.csv"
 timepoints_file <- config$timepoints_file %||% NULL  # allow missing
+prevalence_threshold <- config$prevalence_threshold %||% 0
 extra_cols      <- config$extra_cols %||% character()  # allow missing  #c("sex", "age")
 output_dir      <- config$output_dir %||% "reports" #"../MCI-Dementia/reports"
 
@@ -182,6 +183,7 @@ for(i in seq_len(nrow(comparisons))) {
       comparison   = name,
       library_meta = lib_metadata_df,
       custom_colors = custom_colors,
+      prevalence_threshold = prevalence_threshold,
       timepoints    = timepoints_df,  # only if longitudinal!
       out_tables    = out_tables
     ),

@@ -52,6 +52,7 @@ cmp_file        <- config$comparisons_file #"../MCI-Dementia/Metadata/MCI_Dement
 samples_file    <- config$samples_file #"../MCI-Dementia/Metadata/MCI_Dementia_cohort_data_v0507.csv"
 exist_file      <- config$exist_file #"../MCI-Dementia/Data/exist.csv"
 timepoints_file <- config$timepoints_file %||% NULL  # allow missing
+prevalence_threshold <- config$prevalence_threshold %||% 0
 extra_cols      <- config$extra_cols %||% character()  # allow missing  #c("sex", "age")
 output_dir      <- config$output_dir %||% "reports" #"../MCI-Dementia/reports"
 
@@ -107,7 +108,7 @@ extra_syms <- syms(extra_cols)
 args_full <- commandArgs(trailingOnly = FALSE)
 script_path <- dirname(normalizePath(sub("--file=", "", args_full[grep("--file=", args_full)])))
 template <- file.path(script_path, "template/template_phipseq.Rmd") #"template/template_phipseq.Rmd" 
-library_meta <- file.path(script_path, "combined_libraries_with_lineages_important_info_nonAAseq.rds") #""library_meta/combined_libraries_with_lineages_important_info_nonAAseq.rds"" 
+library_meta <- file.path(script_path, "library_meta/combined_libraries_with_lineages_important_info_nonAAseq.rds") #""library_meta/combined_libraries_with_lineages_important_info_nonAAseq.rds"" 
 lib_metadata_df <- readRDS(library_meta)
 
 
@@ -209,6 +210,7 @@ results <- furrr::future_pmap_dfr(
           exist         = exist_i,
           comparison    = name,
           library_meta  = lib_metadata_df,
+          prevalence_threshold= prevalence_threshold,
           custom_colors = custom_colors,
           timepoints    = timepoints_df,  # only if longitudinal!
           out_tables    = out_tables
