@@ -1002,7 +1002,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
       ) %>%
       filter(is.finite(log2ratio), is.finite(-log10(pvals_not_adj))) %>%  # drop any Inf or NaN 
       arrange(highlight)
-    
+
     pvals <- sapply(highlight_cols, function(flag) {
       x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
       #y <- comparison_df$log2ratio
@@ -1012,8 +1012,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
       w$p.value
     })
     pvals_adj <- p.adjust(pvals, method = "BH")
-    fmt_p <- formatC(pvals_adj, format="e", digits=1) # e.g. "1.2e-03" → "1.2×10⁻³"
-    #fmt_p <- sub("e([-+]?)([0-9]+)$", "×10\\^\\2", fmt_p)
+    fmt_p <- format.pval(pvals_adj, digits = 1, eps = 0.001)
     legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
     
     # colors: user‐supplied or a simple default palette
@@ -1865,7 +1864,10 @@ get_top_significant_taxa <- function(comparison_df, lineage_col, n = 8) {
     # take the top n
     slice_head(n = n) %>%
     # pull out just the lineage names
-    pull(!!lineage_sym)
+    pull(!!lineage_sym) %>%
+    # ---- CLEAN THE NAMES HERE ----
+    str_remove_all("\\[|\\]") %>%  # drop any brackets
+    str_squish()                  # collapse multiple spaces, trim
 }
 
 # Helper: generate flags_to_patterns and highlight_colors from top lineages
@@ -2411,7 +2413,8 @@ plot_taxa_violin <- function(prep_out, ncol = 3, nudge_y = -1) {
   p <- ggplot(prep_out$rel_abundance_filtered, aes(x = Group, y = Abundance)) +
     geom_violin(fill = "gray80") +
     geom_jitter(aes(color = Rank), width = 0.2, alpha = 0.6, size = 1) +
-    stat_summary(fun = median, geom = "point", color = "black", size = 2) +
+    stat_summary(fun = median, geom = "crossbar", color = "black", size = 0.5, fatten = 1) + #geom = "errorbar", aes(ymin = ..y.., ymax = ..y..) ) +
+    stat_summary(fun = mean, geom = "point", color = "black", size = 1.5) +
     scale_color_manual(values = prep_out$rank_colors) +
     #scale_y_log10(expand = expansion(mult = c(0, 0.11))) +
     scale_y_continuous(

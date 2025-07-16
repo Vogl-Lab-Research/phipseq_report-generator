@@ -30,7 +30,6 @@ knitr::opts_chunk$set(echo  = FALSE, warning = FALSE, message = FALSE
                       ,fig.width  = 5, fig.height = 4) # default figure dimensions (in inches)
 
 # Load custom utility functions
-#source(file.path("utils", "report_utils.R"))
 source(file.path("utils", "report_utils.R"))
 
 # read in the two per‐comparison files
@@ -42,6 +41,12 @@ prevalence_threshold <- params$prevalence_threshold
 custom_colors <- params$custom_colors
 out_dir <- params$out_tables
 
+
+lib_metadata_df <- lib_metadata_df %>%
+  mutate(
+    species = str_remove_all(species, "\\[|\\]"), #a few species with this
+    species = str_squish(species)     
+  )
 
 subgroup_lib_df <- lib_metadata_df %>%
   tibble::rownames_to_column(var = "Peptide") %>%
@@ -337,9 +342,9 @@ for (group_col in group_cols) {
 
 ## Significance (Taxa level)  {.tabset}
 
-- Highlighting interesting virus/bacteria groups at rank level that seems to appear significantly in at least one group
+- Highlighting interesting virus/bacteria groups at rank level that seems to appear significantly overrepresented when compared to the complete library
 
-- Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus rank of interest and the ratio of group1/group1 of the complete library (excluding the group of interest)
+- Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus rank of interest and the ratio of group1/group2 of the complete library (excluding the group of interest)
 
 ```{r}
 highlight_colors <- c("#7570b3", "cadetblue3", "gold", "lightsalmon2", "chartreuse4", "magenta4", "royalblue2", "tomato2", "yellow4", "springgreen2")
@@ -368,9 +373,18 @@ for(rank_level in rank_levels) {
      
       significant_taxa_list[[rank_level]][[comp_name]] <- make_flag_lists_from_top_names(comparison_df = comparison_df, lineage_col = rank_level, 
                                                                                          n = 10, colors = highlight_colors)
-      
 
-      flags <- names(significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns)[1:5]
+
+      all_flags <- names(significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns)
+      # if there are no flags at all, skip this comparison
+      if (length(all_flags) == 0) {
+        message("  → no significant taxa for ", comp_name, "; skipping.")
+        next
+      }
+  
+      # otherwise take up to five
+      flags    <- head(all_flags, 5)
+      n_flags  <- length(flags)
       for(flag in flags){
         patterns <- significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns[[flag]]
         # (A) Add a new TRUE/FALSE column "flag" by matching those patterns:
@@ -385,7 +399,7 @@ for(rank_level in rank_levels) {
                                group1 = group1, group2 = group2, N = c(N1,N2),
                                highlight_cols   = flags, 
                                #highlight_colors = c(Bacteriodales = "#1b9e77", Enterovirus = "#7570b3"),
-                               highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:5],
+                               highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags],
                                default_color    = "gray80", 
                                interactive = T)
       scatter_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
@@ -404,12 +418,6 @@ for(rank_level in rank_levels) {
 
 ### Volcano plot {.tabset}
 
-Highlighting interesting virus/bacteria groups that seems to appear significantly in at least one group
-
-- Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus of interest and the ratio of group1/group1 of the complete library (excluding the group of interest)
-
-
-
 ```{r sig-volcano‐all‐ranks, results='asis'}
 results_list <- list()
 for(rank_level in rank_levels) {
@@ -425,7 +433,17 @@ for(rank_level in rank_levels) {
       N1 <- num_samples_per_group[[group_col]][[group1]]
       N2 <- num_samples_per_group[[group_col]][[group2]]
       comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df
-      flags <- names(significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns)[1:10]
+
+      all_flags <- names(significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns)
+      # if there are no flags at all, skip this comparison
+      if (length(all_flags) == 0) {
+        message("  → no significant taxa for ", comp_name, "; skipping.")
+        next
+      }
+  
+      # otherwise take up to five
+      flags    <- head(all_flags, 10)
+      n_flags  <- length(flags)
       for(flag in flags){
         patterns <- significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns[[flag]]
         # (A) Add a new TRUE/FALSE column "flag" by matching those patterns:
@@ -436,11 +454,24 @@ for(rank_level in rank_levels) {
             target_cols = c(rank_level, "Description")
           )
       }
-      
+      # flag_counts <- sapply(flags, function(f) {
+      #   n_true  <- sum(comparison_df[[f]], na.rm = TRUE)
+      #   n_false <- sum(!comparison_df[[f]], na.rm = TRUE)
+      #   c(n_true = n_true, n_false = n_false)
+      #   })
+      # valid_flags <- names(which(
+      #   flag_counts["n_true", ]  >= 2 &
+      #   flag_counts["n_false", ] >= 2
+      # ))
+      # if (length(valid_flags) == 0) {
+      #   message("No flags with ≥2 cases and ≥2 non‐cases—skipping this comparison.")
+      #   next
+      # }
+      # valid_colors <- significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[valid_flags]
       p <- make_interactive_volcano(comparison_df = comparison_df,
                                group1 = group1, group2 = group2, fc_cut = 1, p_cut = 0.05,
                                highlight_cols   = flags,  
-                               highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:10],
+                               highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags],
                                default_color    = "gray80", 
                                interactive = T)
       volcano_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
@@ -611,6 +642,14 @@ for (rank_level in rank_levels){
           paste0(group1, "_count"), paste0(group2, "_count"), "ratio")
       ]
       
+      
+      all_flags <- names(significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns)
+      # if there are no flags at all, skip this comparison
+      if (length(all_flags) == 0) {
+        message("  → no significant taxa for ", comp_name, "; skipping.")
+        next
+      }
+      
       flags <- names(significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns)
       for(flag in flags){
         patterns <- significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns[[flag]]
@@ -661,5 +700,70 @@ for (rank_level in rank_levels){
     }
   }
 }
+```
+
+
+
+
+# Significant Taxa Between Groups {.tabset}
+
+
+```{r significant‐all‐ranks, results='asis', fig.width=8, fig.height=8}
+for(rank_level in rank_levels) {
+
+  cat("\n\n## ", tools::toTitleCase(rank_level), " {.tabset} \n\n")
+  
+  preps <- lapply(group_cols, function(gc) {
+    prep <- prep_taxa_stats(
+      rank        = rank_level,
+      group_col   = gc,
+      counts_list = counts_list,
+      metadata    = metadata,
+      top_n       = 12,
+      order_by    = "All"    # or specify e.g. "Controls"
+    )
+  })
+  names(preps) <- group_cols
+
+
+  for(group_col in group_cols) {
+    
+    prep <- preps[[group_col]]
+    
+    p1 <- plot_taxa_violin(prep, ncol = 3, nudge_y = -1.06)
+    print(p1)
+
+    # bar_df <- prep$rel_abundance_filtered %>%
+    #   group_by(Rank, Group) %>%
+    #   summarise(
+    #     median_ab = median(Abundance[Abundance > 0], na.rm = TRUE),
+    #     #mean_ab = median(Abundance, na.rm = TRUE),
+    #     #sd_ab   = sd(Abundance,   na.rm = TRUE),
+    #     .groups = "drop"
+    #     ) %>%
+    #   mutate(median_ab = median_ab * 100)
+    #   #sd_ab   = sd_ab   * 100)
+    # 
+    # 
+    # p2 <- ggplot(bar_df, aes(x = Rank, y = median_ab, fill = Group)) +
+    #   geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+    # 
+    #   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    #   scale_fill_manual(values=custom_colors) +
+    #   labs(
+    #     x = tools::toTitleCase(rank_level),
+    #     y = "Median Relative Abundance (%)",
+    #     fill = "Group"
+    #   ) +
+    #   theme_pubclean(base_size = 12) +
+    #   theme(
+    #     axis.text.x = element_text(angle = 0, hjust = 0.5)
+    #   ) +
+    #   coord_flip()
+    # 
+    # print(p2)
+  }
+}
+
 ```
 
