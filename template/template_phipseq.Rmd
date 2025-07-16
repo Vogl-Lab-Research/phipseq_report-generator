@@ -634,7 +634,7 @@ for (rank_level in rank_levels){
       }
       
       if (rank_level == "species"){
-        output_table <- paste0("table_peptidesSignificance_",group_col,"_",comp_name,".csv")
+        output_table <- paste0(out_dir,"/table_peptidesSignificance_",group_col,"_",comp_name,".csv")
         readr::write_csv(comparison_group_tests[[group_col]][[comp_name]]$comparison_df, output_table)
       }
       
