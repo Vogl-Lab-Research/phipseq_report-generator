@@ -42,6 +42,7 @@ custom_colors <- params$custom_colors
 out_dir <- params$out_tables
 
 
+
 lib_metadata_df <- lib_metadata_df %>%
   mutate(
     species = str_remove_all(species, "\\[|\\]"), #a few species with this
@@ -729,8 +730,20 @@ for(rank_level in rank_levels) {
   for(group_col in group_cols) {
     
     prep <- preps[[group_col]]
+      
+    # get the max abundance
+    max_ab <- max(prep$rel_abundance_filtered$Abundance, na.rm = TRUE)
     
-    p1 <- plot_taxa_violin(prep, ncol = 3, nudge_y = -1.06)
+    # choose your nudge based on thresholds
+    nudge_y <- case_when(
+      max_ab <= 0.1   ~ -1.0,
+      max_ab <= 0.15  ~ -0.8,
+      max_ab <= 0.2   ~ -0.7,
+      max_ab <= 0.3   ~ -0.5,
+      TRUE           ~ -0.3    # a sensible default if >0.3
+    )
+
+    p1 <- plot_taxa_violin(prep, ncol = 3, nudge_y = nudge_y)
     print(p1)
 
     # bar_df <- prep$rel_abundance_filtered %>%
