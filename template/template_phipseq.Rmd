@@ -185,8 +185,11 @@ for(rank_level in c("peptide", rank_levels)) {
   
   if (rank_level %in% "peptide"){
     counts <- exist
+    label_y <- paste("Counts of Enriched Peptides")
+
   } else{
     counts <- counts_list[[rank_level]]
+    label_y <- paste("Richness (", rank_level, " rank)", sep = "")
   }
   
   for (group_col in group_cols){
@@ -199,14 +202,14 @@ for(rank_level in c("peptide", rank_levels)) {
                               values_col = "Richness",
                               custom_colors = custom_colors, 
                               pairwise_comparisons = pairwise_comparisons,
-                              label_axis = c("Group Test", paste("Richness (", tools::toTitleCase(rank_level), " level)"), sep=""), 
+                              label_axis = c("Group", label_y), 
                               sig_level = 1,label_format = "p.signif")
     p2 <- plot_groups_boxplots(data = alpha_df, 
                               group_col = "Group", 
                               values_col = "Shannon Diversity",
                               custom_colors = custom_colors, 
                               pairwise_comparisons = pairwise_comparisons,
-                              label_axis = c("Group Test", paste("Shannon Diversity (", tools::toTitleCase(rank_level), " level)"), sep=""), 
+                              label_axis = c("Group", paste("Shannon Diversity (", tools::toTitleCase(rank_level), " rank)",sep="")), 
                               sig_level = 1,label_format = "p.signif")
     # p3 <- plot_groups_boxplots(data = alpha_df, 
     #                           group_col = "Group", 
@@ -258,7 +261,7 @@ for(rank_level in c("peptide",rank_levels)) {
     }
     
     p1 <- plot_pcoa(beta_diversity= beta_res, custom_colors = custom_colors, ellipse = T, permutations = 1000, show_legend = F )
-    p2 <- plot_beta_dispersion(beta_res$beta_dispersion, sample_meta, custom_colors, group_col = group_col)
+    p2 <- plot_beta_dispersion(beta_res$beta_dispersion, custom_colors)
     print(p1+p2)
   }
 }
@@ -348,7 +351,8 @@ for (group_col in group_cols) {
 - Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus rank of interest and the ratio of group1/group2 of the complete library (excluding the group of interest)
 
 ```{r}
-highlight_colors <- c("#7570b3", "cadetblue3", "gold", "lightsalmon2", "chartreuse4", "magenta4", "royalblue2", "tomato2", "yellow4", "springgreen2")
+#highlight_colors <- c("#7570b3", "cadetblue3", "gold", "lightsalmon2", "chartreuse4", "magenta4", "royalblue2", "tomato2", "yellow4", "springgreen2")
+highlight_colors <- c("#7570b3", "royalblue2", "gold", "tomato2", "chartreuse4", "magenta4", "cyan3", "pink3", "yellowgreen", "sienna4")
 significant_taxa_list <- list()
 ```
 
@@ -675,12 +679,10 @@ for (rank_level in rank_levels){
       }
       
       p_subgroup <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
-                                   custom_colors = custom_colors, 
                                    prevalence_threshold = prevalence_threshold,
                                    which_subgroups = "default"
                                    )
       p_taxa <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
-                                   custom_colors = custom_colors, 
                                    subgroup_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors,
                                    add_subgroups = flags,
                                    prevalence_threshold = prevalence_threshold,

@@ -1618,7 +1618,6 @@ plot_ratios_by_subgroup <- function(
     group1,
     group2,
     subgroup_lib_df,
-    custom_colors,
     subgroup_colors      = NULL,
     prevalence_threshold = 0,
     add_subgroups        = NULL,
@@ -2232,14 +2231,12 @@ normalize_taxa_counts <- function(ct, norm_method = c("relative","hellinger","lo
 
 prep_abund_data <- function(ct, sample_meta, group_col = "Group", norm_method = c("relative","hellinger","log","none")) {
   
-  # ensure samples × taxa and align to metadata
-  mat <- if (all(colnames(ct) %in% sample_meta$SampleName)) t(ct) else ct
-  
+  mat <- t(ct) 
   sample_meta <- sample_meta %>%
     rename(Group = !!sym(group_col)) %>%
     filter(!is.na(Group))
   
-  common <- intersect(rownames(mat), sample_meta$SampleName)
+  common <- intersect(sample_meta$SampleName, rownames(mat))
   mat         <- mat[common, , drop = FALSE]
   
   mat <- normalize_taxa_counts(mat, norm_method)
@@ -2285,8 +2282,8 @@ compute_beta_diversity <- function(ct, sample_meta, group_col = "Group", method 
   
   scores <- data.frame(
     SampleName = rownames(pcoa$points),
-    PC1    = pcoa$points[,1],
-    PC2    = pcoa$points[,2]
+    PCoA1    = pcoa$points[,1],
+    PCoA2    = pcoa$points[,2]
   )
   
   scores <- merge(scores, sample_meta, by.x = "SampleName", by.y = "SampleName")
@@ -2322,18 +2319,19 @@ compute_beta_diversity <- function(ct, sample_meta, group_col = "Group", method 
 
 
 ## plots
-plot_beta_dispersion <- function(disp, sample_meta, custom_colors, group_col = "Group") {
-  sample_meta <- sample_meta %>% rename(Group = !!sym(group_col))
+
+plot_beta_dispersion <- function(disp, custom_colors, sig_level   = 0.01) {
   
-  df <- data.frame(SampleName = names(disp$distances), Distance = disp$distances)
-  df <- merge(df, sample_meta, by.x = "SampleName", by.y = "SampleName")
+  df <- data.frame(SampleName = names(disp$distances), Distance = disp$distances, Group = disp$group)
+
+  pairwise_comparisons <- combn(levels(factor(df[["Group"]])), 2, simplify = FALSE)
   
-  pairwise_comparisons <- combn(levels(factor(sample_meta[["Group"]])), 2, simplify = FALSE)
   
   p <- plot_groups_boxplots(data = df, 
                             group_col = "Group", 
                             values_col = "Distance",
                             custom_colors = custom_colors, 
+                            sig_level   = sig_level,
                             pairwise_comparisons = pairwise_comparisons,
                             label_axis = c("Group", "Distance to centroid"))
   
@@ -2351,8 +2349,9 @@ plot_pcoa <- function(beta_diversity, custom_colors,
   
   disp_perm  <- vegan::permutest(disp, permutations = permutations)
   centroids <- disp$centroids %>%
-    as.data.frame() %>% 
+    as.data.frame() %>%
     tibble::rownames_to_column(var="Group")
+
   
   
   # extract the raw p’s
@@ -2364,7 +2363,8 @@ plot_pcoa <- function(beta_diversity, custom_colors,
   lab_disp <- paste0( "Dispersion   p = ", format.pval(p_disp_val, digits = 1, eps = 0.01))
   
   
-  p <- ggplot(mds_scores, aes(x = PC1, y = PC2, fill = Group))
+  
+  p <- ggplot(mds_scores, aes(x = PCoA1, y = PCoA2, fill = Group))
   
   # Conditionally add the ellipse
   if (ellipse) {
@@ -2379,8 +2379,8 @@ plot_pcoa <- function(beta_diversity, custom_colors,
     scale_color_manual(values = custom_colors) +
     guides(color = "none") +
     labs(
-      x = paste0("MDS 1 (", var_exp_all[1], "%)"),
-      y = paste0("MDS 2 (", var_exp_all[2], "%)")
+      x = paste0("PCoA 1 (", var_exp_all[1], "%)"),
+      y = paste0("PCoA 2 (", var_exp_all[2], "%)")
       #,title = glue::glue(
       #   "PERMANOVA p={format(permanova$`Pr(>F)`[1], digits=2)}; dispersion p={format(disp_perm$tab$`Pr(>F)`[1],digits=2)}"
       # )
