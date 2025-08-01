@@ -150,6 +150,7 @@ get_count_percentage_df <- function(features_target, group_col, group_cols, prev
 }
 
 
+
 plot_enrichment_counts <- function(features_target,
                                    group_col, group_cols,
                                    prevalence_threshold = 0,
@@ -163,6 +164,11 @@ plot_enrichment_counts <- function(features_target,
     prevalence_threshold = prevalence_threshold
   )
   
+  real_order <- features_target %>%
+    pull(!!sym(group_col)) %>%
+    factor() %>%
+    levels()
+  
   
   # pivot to long of the *_count columns
   count_df <- percentage_df %>%
@@ -172,7 +178,8 @@ plot_enrichment_counts <- function(features_target,
       names_to  = "Cohort",
       values_to = "n_present"
     ) %>%
-    mutate(Cohort = sub("_count$", "", Cohort)) %>%
+    mutate(Cohort = sub("_count$", "", Cohort),
+           Cohort = factor(Cohort, levels = real_order)) %>%
     filter(n_present > 0)   # drop zero‐present peptides 
   
   # compute thresholds per cohort
@@ -200,9 +207,9 @@ plot_enrichment_counts <- function(features_target,
     annotation_logticks(sides = "l", scaled = TRUE) +
     scale_fill_manual(values = custom_colors) +
     labs(
-      x = "Number of samples peptide is present in",
-      y = "Number of significantly bound peptides (log₁₀ scale)",
-    ) +
+      x = "# of individuals",
+      y = expression("# of significantly bound peptides (" * log[10] * ")")
+    )+
     
     # horizontal arrowed line
     geom_segment(
@@ -229,22 +236,26 @@ plot_enrichment_counts <- function(features_target,
       ),
       inherit.aes = FALSE,
       vjust       = -0.5,
-      size        = 3
+      size        = 4
     ) +
     
     facet_wrap(~ Cohort, ncol = 2, scales = "free_x") +
-    theme_bw(base_size = 10) +
+    theme_bw(base_size = 13) +
     theme(
       legend.position   = "none",
       strip.background  = element_blank(),
-      strip.text        = element_text(face = "bold"),
-      panel.grid.major  = element_line(color = "grey90"),
-      panel.grid.minor  = element_blank()
+      strip.text = element_text(face = "bold", size = 14, colour = "black"),
+      panel.grid.major = element_line(color = "grey90", linetype = "solid"),
+      panel.grid.minor  = element_blank(),
+      axis.text.y.left = element_text(size = 13),
+      axis.text.x.bottom = element_text(size = 13),
+      axis.title.y = element_text(size = 14),
+      axis.title.x = element_text(size = 14, margin = margin(t = 0)),
+      plot.margin = margin(0, 3, 0, 0, unit = "pt")    
     )
   
   return(p)
 }
-
 
 ######################################################
 ####### plot  enrichment and diversity################
@@ -272,7 +283,7 @@ plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pai
     paste0(df_counts[[group_col]], "\n(n = ", df_counts$sample_count, ")"),
     df_counts[[group_col]]
   )
-
+  
   # — compute pairwise p-values and keep only those < sig_level —
   sig_comparisons <- purrr::keep(pairwise_comparisons, function(pair) {
     g1 <- pair[1]
@@ -283,7 +294,7 @@ plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pai
     wt <- wilcox.test(x, y, exact = FALSE)
     wt$p.value < sig_level
   })
-
+  
   # pairwise_p <-  purrr::map_dfr(pairwise_comparisons, function(pair) {
   #   g1 <- pair[1]; g2 <- pair[2]
   #   x  <- data %>% filter(!!group_sym == g1) %>% pull(!!values_sym)
@@ -313,41 +324,166 @@ plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pai
     #scale_colour_manual(values = custom_colors) +  # Assign custom colors
     
     scale_x_discrete(labels = x_labels) +         # Use the custom labels
-    theme_bw() +
+    theme_bw(base_size = 13) +
     theme(
       axis.text.x = element_text(angle = 45, vjust = 0.6, hjust = 0.5),
+      axis.text.x.bottom = element_text(size = 13),
+      axis.text.y.left = element_text(size = 13),
+      axis.title.y = element_text(size = 13),
+      axis.title.x = element_text(size = 13),
+      plot.margin = margin(0, 1, 0, 1, unit = "pt"),
       panel.grid = element_blank()
     ) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) 
-    # ggpubr::stat_compare_means(method = "wilcox.test", 
-    #                            comparisons = pairwise_comparisons, 
-    #                            label = "p.format",#"p.signif",  # Display significance level (e.g., * or **)
-    #                            hide.ns = T,     # Option to hide non-significant comparisons
-    #                            size = 4)
+  # ggpubr::stat_compare_means(method = "wilcox.test", 
+  #                            comparisons = pairwise_comparisons, 
+  #                            label = "p.format",#"p.signif",  # Display significance level (e.g., * or **)
+  #                            hide.ns = T,     # Option to hide non-significant comparisons
+  #                            size = 4)
   
-    # only add stat_compare_means if there are any significant comparisons
-    if (length(sig_comparisons) > 0) {
-      p <- p +
-        stat_compare_means(
-          method       = "wilcox.test",
-          comparisons  = sig_comparisons,
-          label        = label_format,
-          hide.ns      = F,    # hides any “ns”
-          size         = 3.5,
-          tip.length   = 0.02
-        )
-    }
+  
+  
+  # only add stat_compare_means if there are any significant comparisons
+  if (length(sig_comparisons) > 0) {
+    p <- p +
+      stat_compare_means(
+        method       = "wilcox.test",
+        comparisons  = sig_comparisons,
+        label        = label_format,
+        hide.ns      = F,    # hides any “ns”
+        size         = 4.5, #4.5AA if numbres, 5 if ns, 7 for peptide level -  paper
+        tip.length   = 0.02
+      )
+  }
   
   # If label_axis is not NA, add custom axis labels. Assuming label_axis is a vector of length 2:
-  if (!is.na(label_axis[1]) && !is.na(label_axis[2])) {
-    p <- p + labs(
-      x = label_axis[1],
-      y = label_axis[2]
-    )
-  }
+  # if (is.na(label_axis[1])) {
+  #   p <- p + labs(
+  #     x = NULL
+  #   )
+  #   if(!is.na(label_axis[2])){
+  #     p <- p + labs(
+  #       y = label_axis[2]
+  #     )
+  #   }
+  # } else if (!is.na(label_axis[1]) && !is.na(label_axis[2])) {
+  #   p <- p + labs(
+  #     x = label_axis[1],
+  #     y = label_axis[2]
+  #   )
+  # }
+  
+  # Build a named list for labs(), turning NA → NULL:
+  labs_args <- list(
+    x = if (is.na(label_axis[1])) NULL else label_axis[1],
+    y = if (is.na(label_axis[2])) NULL else label_axis[2]
+  )
+  # Always call labs() so that x=NULL actually removes the default
+  p <- p + do.call(labs, labs_args)
   
   return(p)
 }
+
+# 
+# plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pairwise_comparisons, 
+#                                  label_axis = NA, sig_level   = 0.05,
+#                                  #max_sig       = 6,
+#                                  label_format  = "p.format"){  # or "p.signif") 
+#   # Convert grouping column name to symbol
+#   group_sym <- sym(group_col)
+#   values_sym <- sym(values_col)
+#   
+#   # Drop rows where either group or value is NA
+#   data <- data %>%
+#     filter(!is.na(!!group_sym), !is.na(!!values_sym))
+#   
+#   # Summarize counts by that group
+#   df_counts <- data %>%
+#     group_by(!!group_sym) %>%
+#     summarize(sample_count = n(), .groups = "drop")
+#   
+#   # Create x-axis labels using the dynamic variable.
+#   # Since group_col is a string, we access it directly on df_counts.
+#   x_labels <- setNames(
+#     paste0(df_counts[[group_col]], "\n(n = ", df_counts$sample_count, ")"),
+#     df_counts[[group_col]]
+#   )
+# 
+#   # — compute pairwise p-values and keep only those < sig_level —
+#   sig_comparisons <- purrr::keep(pairwise_comparisons, function(pair) {
+#     g1 <- pair[1]
+#     g2 <- pair[2]
+#     # extract the raw values for each group
+#     x <- data %>% filter(!!group_sym == g1) %>% pull(!!values_sym)
+#     y <- data %>% filter(!!group_sym == g2) %>% pull(!!values_sym)
+#     wt <- wilcox.test(x, y, exact = FALSE)
+#     wt$p.value < sig_level
+#   })
+# 
+#   # pairwise_p <-  purrr::map_dfr(pairwise_comparisons, function(pair) {
+#   #   g1 <- pair[1]; g2 <- pair[2]
+#   #   x  <- data %>% filter(!!group_sym == g1) %>% pull(!!values_sym)
+#   #   y  <- data %>% filter(!!group_sym == g2) %>% pull(!!values_sym)
+#   #   p  <- wilcox.test(x, y, exact = FALSE)$p.value
+#   #   tibble::tibble(group1 = g1, group2 = g2, p.value = p)
+#   # })
+#   # 
+#   # # 2) keep only p < sig_level, sort, take top max_sig
+#   # top_pairs <- pairwise_p %>%
+#   #   filter(p.value < sig_level) %>%
+#   #   arrange(p.value) %>%
+#   #   slice_head(n = max_sig)
+#   # 
+#   # # 3) turn that back into the list-of-pairs format
+#   # sig_comparisons <- purrr::pmap(
+#   #   list(top_pairs$group1, top_pairs$group2),
+#   #   c
+#   # )  
+#   # Build the plot:
+#   p <- ggplot(data, aes(x = !!group_sym, y = !!values_sym)) +
+#     geom_boxplot(show.legend = FALSE, outlier.shape = NA, aes(fill = !!group_sym)) +
+#     #geom_boxplot(show.legend = FALSE, outlier.shape = NA, fill="gray80") +  # Hide legend if desired
+#     #geom_jitter(show.legend = FALSE, aes(color = !!group_sym), width = 0.2, alpha = 0.7, size = 1) +
+#     geom_jitter(color = "black", size = 1, width = 0.2, alpha = 0.3, show.legend = FALSE) +  
+#     scale_fill_manual(values = custom_colors) +  # Assign custom colors
+#     #scale_colour_manual(values = custom_colors) +  # Assign custom colors
+#     
+#     scale_x_discrete(labels = x_labels) +         # Use the custom labels
+#     theme_bw() +
+#     theme(
+#       axis.text.x = element_text(angle = 45, vjust = 0.6, hjust = 0.5),
+#       panel.grid = element_blank()
+#     ) +
+#     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) 
+#     # ggpubr::stat_compare_means(method = "wilcox.test", 
+#     #                            comparisons = pairwise_comparisons, 
+#     #                            label = "p.format",#"p.signif",  # Display significance level (e.g., * or **)
+#     #                            hide.ns = T,     # Option to hide non-significant comparisons
+#     #                            size = 4)
+#   
+#     # only add stat_compare_means if there are any significant comparisons
+#     if (length(sig_comparisons) > 0) {
+#       p <- p +
+#         stat_compare_means(
+#           method       = "wilcox.test",
+#           comparisons  = sig_comparisons,
+#           label        = label_format,
+#           hide.ns      = F,    # hides any “ns”
+#           size         = 3.5,
+#           tip.length   = 0.02
+#         )
+#     }
+#   
+#   # If label_axis is not NA, add custom axis labels. Assuming label_axis is a vector of length 2:
+#   if (!is.na(label_axis[1]) && !is.na(label_axis[2])) {
+#     p <- p + labs(
+#       x = label_axis[1],
+#       y = label_axis[2]
+#     )
+#   }
+#   
+#   return(p)
+# }
 
 #################################
 ## plot sex/age distribution#####
@@ -387,6 +523,7 @@ test_sex_age_distribution <- function(data,
               aov_results = tidy_aov))
 }
 
+
 plot_sex_age_distribution <- function(data, 
                                       group_col, 
                                       age_col = "Age_group", 
@@ -420,10 +557,10 @@ plot_sex_age_distribution <- function(data,
   
   
   p <- ggplot(data_summary, aes(x = ifelse(!!group_sym == levels(factor(.data[[group_sym]]))[1], count, -count), y = .data[[age_col]], fill = .data[[sex_col]])) +
-    geom_bar(stat = "identity", position = "identity", width = 0.85) +
+    geom_bar(stat = "identity", position = "identity", width = 0.9) +
     scale_x_continuous(
-      labels = function(x) ifelse(x %in%  seq(-300, 300, by = 3), abs(x), ""),
-      breaks = seq(-300, 300, by = 3)
+      labels = function(x) ifelse(x %in%  seq(-300, 300, by = 4), abs(x), ""),
+      breaks = seq(-300, 300, by = 4)
     ) +
     scale_fill_manual(values = custom_colors) +
     # Facet by the chosen grouping variable.
@@ -434,21 +571,27 @@ plot_sex_age_distribution <- function(data,
       y = "Age Group",
       fill = NULL
     ) +
-    theme_minimal(base_size = 11) +
+    theme_light(base_size = 13) +
     theme(
       legend.position = "top",
-      legend.text = element_text(size = 11),
-      strip.background = element_blank(),
-      strip.text = element_text(face = "bold", size = 10),
-      panel.grid.minor = element_blank(),
-      panel.grid.major.x = element_line(color = "grey90", linetype = "dashed"),
+      legend.text = element_text(size = 14),
+      legend.box.margin   = margin(t = 0, r = 0, b = 0, l = 0), 
+      legend.margin       = margin(t = 0, r = 0, b = 0, l = 0),
+      strip.background.x = element_blank(),
+      #strip.background = element_blank(),
+      strip.text = element_text(face = "bold", size = 14, colour = "black"),
+      #panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_line(color = "grey90", linetype = "solid"),
       panel.grid.major.y = element_blank(),
-      axis.text.y.left = element_text(size = 10, face = "italic"),
+      axis.text.y.left = element_text(size = 13),
       axis.text.y.right = element_blank(),
       axis.ticks.y.right = element_blank(),
-      axis.title.x = element_text(margin = margin(t = 10), face = "bold"),
-      axis.title.y = element_text(face = "bold"),
-      legend.box.spacing = unit(0.2, "lines")
+      axis.text.x.bottom = element_text(size = 13),
+      axis.title.x = element_text(size = 14),
+      axis.title.y = element_text(size = 14),
+      legend.box.spacing = unit(0.2, "lines"),
+      plot.margin = margin(0, 0, 0, 0, unit = "pt")    
+      
     )
   
   return(p)
@@ -2320,7 +2463,7 @@ compute_beta_diversity <- function(ct, sample_meta, group_col = "Group", method 
 
 ## plots
 
-plot_beta_dispersion <- function(disp, custom_colors, sig_level   = 0.01) {
+plot_beta_dispersion <- function(disp, custom_colors, sig_level   = 0.05, label_format  = "p.format") {
   
   df <- data.frame(SampleName = names(disp$distances), Distance = disp$distances, Group = disp$group)
 
@@ -2332,6 +2475,7 @@ plot_beta_dispersion <- function(disp, custom_colors, sig_level   = 0.01) {
                             values_col = "Distance",
                             custom_colors = custom_colors, 
                             sig_level   = sig_level,
+                            label_format  = label_format,
                             pairwise_comparisons = pairwise_comparisons,
                             label_axis = c("Group", "Distance to centroid"))
   
@@ -2349,9 +2493,8 @@ plot_pcoa <- function(beta_diversity, custom_colors,
   
   disp_perm  <- vegan::permutest(disp, permutations = permutations)
   centroids <- disp$centroids %>%
-    as.data.frame() %>%
+    as.data.frame() %>% 
     tibble::rownames_to_column(var="Group")
-
   
   
   # extract the raw p’s
@@ -2363,18 +2506,17 @@ plot_pcoa <- function(beta_diversity, custom_colors,
   lab_disp <- paste0( "Dispersion   p = ", format.pval(p_disp_val, digits = 1, eps = 0.01))
   
   
-  
   p <- ggplot(mds_scores, aes(x = PCoA1, y = PCoA2, fill = Group))
   
   # Conditionally add the ellipse
   if (ellipse) {
-    p <- p + stat_ellipse(aes(colour = Group), type = "t", level = 0.95, fill = NA, geom = "path", size = 0.8, alpha = 0.5, show.legend = FALSE)
+    p <- p + stat_ellipse(aes(colour = Group), type = "t", level = 0.95, fill = NA, geom = "path", size = 0.9, alpha = 0.8, show.legend = FALSE)
   }
   
   # Add all the remaining layers, making sure to use + at the end of each line
-  p <- p +  geom_point(size = 3, alpha = 0.5, shape = 21, color = "black",  stroke = 0, aes(text = paste("Sample:", SampleName))) +
+  p <- p +  geom_point(size = 4, alpha = 0.7, shape = 21, color = "black",  stroke = 0, aes(text = paste("Sample:", SampleName))) + #3 for fig1 and 4 for fig2
     geom_point(data = centroids, aes(x = PCoA1, y = PCoA2, fill = Group),
-               show.legend = FALSE, size = 5, shape = 21, color = "black") +
+               show.legend = FALSE, size = 6, shape = 21, color = "black") + #5 for fig1 and 6 for fig2
     scale_fill_manual(values = custom_colors) +
     scale_color_manual(values = custom_colors) +
     guides(color = "none") +
@@ -2385,10 +2527,26 @@ plot_pcoa <- function(beta_diversity, custom_colors,
       #   "PERMANOVA p={format(permanova$`Pr(>F)`[1], digits=2)}; dispersion p={format(disp_perm$tab$`Pr(>F)`[1],digits=2)}"
       # )
     ) +
-    theme_bw() +
+    theme_bw(base_size = 14) +
     theme(
-      plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+      legend.position     = c(0.99, 0.5),        # x=95% from left, y=50% from bottom
+      legend.justification = c("right", "center"), 
+      legend.background = element_blank(),     # remove any grey behind the whole legend
+      legend.box.background = element_blank(),  # remove border around the legend box
+      #legend.position  = "right",
+      #legend.margin    = margin(0, 0, 0, -60),
+      #legend.box.margin = margin(0, 0, 0, -60),  # pull legend 10px left
+      legend.key.size      = unit(14, "pt"),
+      legend.text          = element_text(size = 14),
+      legend.title         = element_text(size = 14),
+      
+      axis.text.y.left = element_text(size = 13), #13 in fig1 15 ing fig2
+      axis.text.x.bottom = element_text(size = 13),
+      axis.title.y = element_text(size = 14), #13 in fig1 16 in fig2
+      axis.title.x = element_text(size = 14, margin = margin(t = 1)),
+      plot.margin = margin(2, 4, 2, 4, unit = "pt")    
     ) +
+    
     annotate(
       "text",
       x = Inf,           # right edge
@@ -2396,7 +2554,7 @@ plot_pcoa <- function(beta_diversity, custom_colors,
       label = paste(lab_perm, lab_disp, sep = "\n"),
       hjust = 1.1,       # nudge left a bit
       vjust = -0.1,      # nudge up a bit
-      size = 3           # adjust to taste
+      size = 4           # adjust to taste
     )
   
   if (!show_legend) {
@@ -2423,12 +2581,21 @@ plot_taxa_violin <- function(prep_out, ncol = 3, nudge_y = -1) {
       expand = expansion(mult = c(0, 0.11))  # 5% below, 20% above
     ) +
     facet_wrap(~ Rank, ncol = ncol)+#, scales = "free_y") +
-    theme_pubclean(base_size = 10) +
+    theme_pubclean(base_size = 13) +
     theme(
       legend.position  = "none",
       axis.text.x      = element_text(angle = 45, hjust = 1),
-      plot.margin      = margin(t = 10, r = 5, b = 10, l = 10)
+      plot.margin      = margin(t = 0, r = 2, b = 0, l = 0),
+      strip.background = element_rect(fill = "white", colour = "black"),
+      strip.text = element_text( size = 12, colour = "black"),
+      #panel.grid.major = element_line(color = "grey90", linetype = "solid"),
+      #panel.grid.minor  = element_blank(),
+      axis.text.y.left = element_text(size = 13),
+      axis.text.x.bottom = element_text(size = 13),
+      axis.title.y = element_text(size = 14),
+      axis.title.x = element_text(size = 14, margin = margin(t = 0)),
     ) +
+    
     labs(
       x = "Group",
       y = expression("log"[10]~"(Relative Abundance)")
@@ -2441,7 +2608,7 @@ plot_taxa_violin <- function(prep_out, ncol = 3, nudge_y = -1) {
     y.position    = "y.position",
     tip.length    = 0.02,
     bracket.size  = 0.25,
-    size          = 2.5,
+    size          = 3.4,
     inherit.aes   = FALSE,
     step.increase = 0.1,
     step.group.by = "Rank",

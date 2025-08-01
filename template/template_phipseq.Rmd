@@ -203,14 +203,14 @@ for(rank_level in c("peptide", rank_levels)) {
                               custom_colors = custom_colors, 
                               pairwise_comparisons = pairwise_comparisons,
                               label_axis = c("Group", label_y), 
-                              sig_level = 1,label_format = "p.signif")
+                              sig_level = 1,label_format = "p.signif") #"p.format")
     p2 <- plot_groups_boxplots(data = alpha_df, 
                               group_col = "Group", 
                               values_col = "Shannon Diversity",
                               custom_colors = custom_colors, 
                               pairwise_comparisons = pairwise_comparisons,
                               label_axis = c("Group", paste("Shannon Diversity (", tools::toTitleCase(rank_level), " rank)",sep="")), 
-                              sig_level = 1,label_format = "p.signif")
+                              sig_level = 1,label_format = "p.signif") #"p.format")
     # p3 <- plot_groups_boxplots(data = alpha_df, 
     #                           group_col = "Group", 
     #                           values_col = "Simpson Diversity",
@@ -241,7 +241,8 @@ for(rank_level in c("peptide", rank_levels)) {
 #   tibble::column_to_rownames("Species")
 #group_col <- "group_test"
 
-for(rank_level in c("peptide",rank_levels)) {
+#for(rank_level in c("peptide",rank_levels)) {
+for(rank_level in c(rank_levels)) {
 
   cat("\n\n## ", tools::toTitleCase(rank_level), " {.tabset} \n\n")
   
@@ -261,7 +262,7 @@ for(rank_level in c("peptide",rank_levels)) {
     }
     
     p1 <- plot_pcoa(beta_diversity= beta_res, custom_colors = custom_colors, ellipse = T, permutations = 1000, show_legend = F )
-    p2 <- plot_beta_dispersion(beta_res$beta_dispersion, custom_colors)
+    p2 <- plot_beta_dispersion(beta_res$beta_dispersion, custom_colors, sig_level   = 1, label_format  = "p.signif")
     print(p1+p2)
   }
 }
@@ -352,7 +353,8 @@ for (group_col in group_cols) {
 
 ```{r}
 #highlight_colors <- c("#7570b3", "cadetblue3", "gold", "lightsalmon2", "chartreuse4", "magenta4", "royalblue2", "tomato2", "yellow4", "springgreen2")
-highlight_colors <- c("#7570b3", "royalblue2", "gold", "tomato2", "chartreuse4", "magenta4", "cyan3", "pink3", "yellowgreen", "sienna4")
+#highlight_colors <- c("#7570b3", "royalblue2", "gold", "tomato2", "chartreuse4", "magenta4", "cyan3", "pink3", "yellowgreen", "sienna4")
+highlight_colors <- c("#7570b3", "#1b9e77", "gold", "tomato2", "royalblue2", "chartreuse4", "magenta4", "cyan3", "pink3", "sienna4")
 significant_taxa_list <- list()
 ```
 
@@ -629,7 +631,7 @@ plot_correlation_distribution(
 
 - **This is a stat testing approach, might not work well for small sample sizes or be biased**
 
-- **By default, a 0% prevalence peptide filter is applied (only dropping peptides below that threshold in both groups)**
+- **By default, a 0% prevalence peptide filter is applied (user can defined it) (only dropping peptides below that threshold in both groups)**
 
 
 ```{r sig-subgroups‐all‐ranks, results='asis', fig.width=8, fig.height=8}
@@ -745,8 +747,14 @@ for(rank_level in rank_levels) {
       TRUE           ~ -0.3    # a sensible default if >0.3
     )
 
-    p1 <- plot_taxa_violin(prep, ncol = 3, nudge_y = nudge_y)
-    print(p1)
+    if (nrow(prep$pval_df) > 0) {
+      # Proceed with plotting
+      p1 <- plot_taxa_violin(prep, ncol = 3, nudge_y = nudge_y)
+      print(p1)
+    } else {
+      message("No data to plot.")
+    }
+    
 
     # bar_df <- prep$rel_abundance_filtered %>%
     #   group_by(Rank, Group) %>%
