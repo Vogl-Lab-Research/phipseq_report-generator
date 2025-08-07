@@ -3,6 +3,13 @@ library(yaml)
 library("tidyverse")
 library("rmarkdown")
 
+# Define a simple null-coalescing operator to avoid relying on additional
+# packages. This returns the left-hand side if it is not NULL, otherwise the
+# right-hand side.
+`%||%` <- function(x, y) {
+  if (!is.null(x)) x else y
+}
+
 # read arguments
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) == 0 || "--help" %in% args) {

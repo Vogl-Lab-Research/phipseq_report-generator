@@ -18,6 +18,12 @@ invisible(lapply(required_packages, function(pkg) {
   suppressPackageStartupMessages(library(pkg, character.only = TRUE))
 }))
 
+# Provide a simple null-coalescing operator (`%||%`) locally so the script
+# does not rely on rlang being attached when run as a standalone script.
+`%||%` <- function(x, y) {
+  if (!is.null(x)) x else y
+}
+
 
  # read arguments
 args <- commandArgs(trailingOnly = TRUE)
