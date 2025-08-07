@@ -147,9 +147,10 @@ compute_pca <- function(ct, sample_meta,
 #  • top_n            = how many species to keep
 #  • order_by         = which level of Group to use for ordering (or "All" for overall)
 # Returns a list with:
-#   df_long,            # full long format used for stats/plot
-#   pval_df,            # Dunn’s test results with xmin/xmax/y.position
-#   species_colors      # named vector for species colors
+#   rel_abundance,            # full long format used for stats/plot
+#   rel_abundance_filtered,   # filtered to top taxa
+#   pval_df,                  # Dunn’s test results with xmin/xmax/y.position
+#   rank_colors               # named vector for rank colors
 prep_taxa_stats <- function(
     rank,
     group_col,
