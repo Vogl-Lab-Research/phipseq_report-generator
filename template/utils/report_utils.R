@@ -1824,8 +1824,16 @@ plot_ratios_by_subgroup <- function(
     in_sub <- comparison_df %>% filter(.data[[flag]]) %>% pull(log2ratio)
     # “rest” is everything _not_ in that subgroup:
     out_sub <- comparison_df %>% filter(! .data[[flag]]) %>% pull(log2ratio)
+    
+    if (sum(!is.na(in_sub)) < 1 || sum(!is.na(out_sub)) < 1) {
+      message("Skipping flag '", flag, "' due to insufficient data.")
+      return(NA_real_)
+    }
+    
     wilcox.test(in_sub, out_sub)$p.value
   })
+  
+  
   pvals_lib <- p.adjust(pvals_lib, method = "BH")
   subgroup_vs_rest <- tibble::tibble(
     subgroup_flag = keep_flags,       # temporary holder of the internal names
@@ -2409,31 +2417,69 @@ compute_alpha_diversity <- function(ct, sample_meta, group_col = "Group") {
 
 compute_beta_diversity <- function(ct, sample_meta, group_col = "Group", method = "bray", 
                                    norm_method = c("relative","hellinger","log", "none"), permutations = 1000) {
-  
-  prep  <- prep_abund_data(ct, sample_meta, group_col, norm_method)
-  mat   <- prep$mat
-  sample_meta  <- prep$sample_meta
-  
-  dist_mat <- vegan::vegdist(mat, method = method)
-  pcoa <- cmdscale(dist_mat, eig = TRUE, k = 2)
-  var_exp_all <- round(100 * pcoa$eig[1:2] / sum(pcoa$eig), 2)
-  
-  perm <- vegan::adonis2(dist_mat ~ Group, data = sample_meta, permutations = permutations)
-  p_value <- perm$`Pr(>F)`[1]
-  
-  disp <- vegan::betadisper(dist_mat, sample_meta$Group)
-  
-  scores <- data.frame(
-    SampleName = rownames(pcoa$points),
-    PCoA1    = pcoa$points[,1],
-    PCoA2    = pcoa$points[,2]
-  )
-  
-  scores <- merge(scores, sample_meta, by.x = "SampleName", by.y = "SampleName")
-  
-  return(list(dist = dist_mat, permanova = perm, pcoa = scores, beta_dispersion = disp, exp_variance = var_exp_all))
+  tryCatch({
+    prep  <- prep_abund_data(ct, sample_meta, group_col, norm_method)
+    mat   <- prep$mat
+    sample_meta  <- prep$sample_meta
+    
+    dist_mat <- vegan::vegdist(mat, method = method)
+    pcoa <- cmdscale(dist_mat, eig = TRUE, k = 2)
+    var_exp_all <- round(100 * pcoa$eig[1:2] / sum(pcoa$eig), 2)
+    
+    perm <- vegan::adonis2(dist_mat ~ Group, data = sample_meta, permutations = permutations)
+    p_value <- perm$`Pr(>F)`[1]
+    
+    disp <- vegan::betadisper(dist_mat, sample_meta$Group)
+    
+    scores <- data.frame(
+      SampleName = rownames(pcoa$points),
+      PCoA1    = pcoa$points[,1],
+      PCoA2    = pcoa$points[,2]
+    )
+    
+    scores <- merge(scores, sample_meta, by.x = "SampleName", by.y = "SampleName")
+    
+    return(list(
+      dist = dist_mat, 
+      permanova = perm, 
+      pcoa = scores, 
+      beta_dispersion = disp, 
+      exp_variance = var_exp_all
+    ))
+  }, error = function(e) {
+    message("Error in compute_beta_diversity: ", e$message)
+    return(NULL)
+  })
 }
 
+
+# compute_beta_diversity <- function(ct, sample_meta, group_col = "Group", method = "bray", 
+#                                    norm_method = c("relative","hellinger","log", "none"), permutations = 1000) {
+#   
+#   prep  <- prep_abund_data(ct, sample_meta, group_col, norm_method)
+#   mat   <- prep$mat
+#   sample_meta  <- prep$sample_meta
+#   
+#   dist_mat <- vegan::vegdist(mat, method = method)
+#   pcoa <- cmdscale(dist_mat, eig = TRUE, k = 2)
+#   var_exp_all <- round(100 * pcoa$eig[1:2] / sum(pcoa$eig), 2)
+#   
+#   perm <- vegan::adonis2(dist_mat ~ Group, data = sample_meta, permutations = permutations)
+#   p_value <- perm$`Pr(>F)`[1]
+#   
+#   disp <- vegan::betadisper(dist_mat, sample_meta$Group)
+#   
+#   scores <- data.frame(
+#     SampleName = rownames(pcoa$points),
+#     PCoA1    = pcoa$points[,1],
+#     PCoA2    = pcoa$points[,2]
+#   )
+#   
+#   scores <- merge(scores, sample_meta, by.x = "SampleName", by.y = "SampleName")
+#   
+#   return(list(dist = dist_mat, permanova = perm, pcoa = scores, beta_dispersion = disp, exp_variance = var_exp_all))
+# }
+# 
 
 # compute_pca <- function(ct, sample_meta,
 #                         group_col   = "Group",

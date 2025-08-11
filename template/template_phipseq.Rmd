@@ -234,39 +234,46 @@ for(rank_level in c("peptide", rank_levels)) {
 - Together, these panels tell you whether (a) the two groups occupy distinct regions of Bray–Curtis space (significant PERMANOVA) and (b) whether one group is more dispersed than the other (significant dispersion test).
 
 ```{r beta‐all‐ranks, results='asis', fig.width=8, fig.height=4}
-# rank <- "species"
-# counts <- counts_list[[rank]] %>% 
-#   tibble::rownames_to_column("Species") %>%
-#   filter(Species != "Homo sapiens") %>%
-#   tibble::column_to_rownames("Species")
-#group_col <- "group_test"
-
-#for(rank_level in c("peptide",rank_levels)) {
-for(rank_level in c(rank_levels)) {
-
+for (rank_level in c(rank_levels)) {
+  
   cat("\n\n## ", tools::toTitleCase(rank_level), " {.tabset} \n\n")
   
-  if (rank_level %in% "peptide"){
+  if (rank_level %in% "peptide") {
     counts <- exist
-  } else{
+  } else {
     counts <- counts_list[[rank_level]]
   }
+  
   for (group_col in group_cols) {
-    sample_meta  <- metadata %>% 
-      select(SampleName=SampleName, all_of(group_col)) #%>% rename(Group = !!sym(group_col))  
+    sample_meta <- metadata %>%
+      select(SampleName = SampleName, all_of(group_col))
     
-    if (rank_level %in% "peptide"){
-      beta_res <- compute_beta_diversity(counts, sample_meta, group_col = group_col, method = "bray", norm_method = "none")
-    } else{
-      beta_res <- compute_beta_diversity(counts, sample_meta, group_col = group_col, method = "bray", norm_method = "relative")
+    if (rank_level %in% "peptide") {
+      beta_res <- compute_beta_diversity(counts, sample_meta, 
+                                         group_col = group_col, 
+                                         method = "bray", 
+                                         norm_method = "none")
+    } else {
+      beta_res <- compute_beta_diversity(counts, sample_meta, 
+                                         group_col = group_col, 
+                                         method = "bray", 
+                                         norm_method = "relative")
     }
     
-    p1 <- plot_pcoa(beta_diversity= beta_res, custom_colors = custom_colors, ellipse = T, permutations = 1000, show_legend = F )
-    p2 <- plot_beta_dispersion(beta_res$beta_dispersion, custom_colors, sig_level   = 1, label_format  = "p.signif")
-    print(p1+p2)
+    # Skip plotting if computation failed
+    if (is.null(beta_res)) {
+      message("Skipping plotting for ", rank_level, " / ", group_col, " due to computation error.")
+      next
+    }
+    
+    p1 <- plot_pcoa(beta_diversity = beta_res, custom_colors = custom_colors, 
+                    ellipse = TRUE, permutations = 1000, show_legend = FALSE)
+    p2 <- plot_beta_dispersion(beta_res$beta_dispersion, custom_colors, 
+                               sig_level = 1, label_format = "p.signif")
+    print(p1 + p2)
   }
 }
-#ggsave("my_plot.svg", plot = p1+p2, width = 6, height = 4, device = "svg")
+
 ```
 
 
