@@ -38,7 +38,7 @@ samples_file: Metadata/sorted_LLNEXT_samples_binary.csv
 exist_file: Data/exist.csv
 timepoints_file: Metadata/LLNext_ind_timepoints.csv  # Optional for longitudinal studies
 extra_cols: ["Sex", "Age"]  # Optional additional metadata columns
-
+prevalence_threshold: 0 # Optional, apply a prevalence filter where either one group must pass the defined threshold
 # Output
 output_dir: reports  # Directory for saving reports (relative or absolute path)
 ```
