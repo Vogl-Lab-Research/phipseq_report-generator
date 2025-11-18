@@ -196,26 +196,26 @@ for(rank_level in c("peptide", rank_levels)) {
   
     sample_meta  <- metadata %>% select(SampleName=SampleName, all_of(group_col))
     alpha_df     <- compute_alpha_diversity(counts, sample_meta, group_col)
-    pairwise_comparisons <- combn(levels(factor(sample_meta[[group_col]])), 2, simplify = FALSE)
+    #pairwise_comparisons <- combn(levels(factor(sample_meta[[group_col]])), 2, simplify = FALSE)
     p1 <- plot_groups_boxplots(data = alpha_df, 
                               group_col = "Group", 
                               values_col = "Richness",
                               custom_colors = custom_colors, 
-                              pairwise_comparisons = pairwise_comparisons,
+                              #pairwise_comparisons = pairwise_comparisons,
                               label_axis = c("Group", label_y), 
-                              sig_level = 1,label_format = "p.signif") #"p.format")
+                              sig_level = 1,label_format = "p.format") #"p.format")
     p2 <- plot_groups_boxplots(data = alpha_df, 
                               group_col = "Group", 
                               values_col = "Shannon Diversity",
                               custom_colors = custom_colors, 
-                              pairwise_comparisons = pairwise_comparisons,
+                              #pairwise_comparisons = pairwise_comparisons,
                               label_axis = c("Group", paste("Shannon Diversity (", tools::toTitleCase(rank_level), " rank)",sep="")), 
-                              sig_level = 1,label_format = "p.signif") #"p.format")
+                              sig_level = 1,label_format = "p.format") #"p.format")
     # p3 <- plot_groups_boxplots(data = alpha_df, 
     #                           group_col = "Group", 
     #                           values_col = "Simpson Diversity",
     #                           custom_colors = custom_colors, 
-    #                           pairwise_comparisons = pairwise_comparisons,
+    #                           #pairwise_comparisons = pairwise_comparisons,
     #                           label_axis = c("Group Test", "Simpson's Diversity Index"), sig_level = 0.05,label_format = "p.signif")
     print(p1+p2)
   }
@@ -269,7 +269,7 @@ for (rank_level in c(rank_levels)) {
     p1 <- plot_pcoa(beta_diversity = beta_res, custom_colors = custom_colors, 
                     ellipse = TRUE, permutations = 1000, show_legend = FALSE)
     p2 <- plot_beta_dispersion(beta_res$beta_dispersion, custom_colors, 
-                               sig_level = 1, label_format = "p.signif")
+                               sig_level = 1, label_format = "p.format")
     print(p1 + p2)
   }
 }
@@ -354,9 +354,9 @@ for (group_col in group_cols) {
 
 ## Significance (Taxa level)  {.tabset}
 
-- Highlighting interesting virus/bacteria groups at rank level that seems to appear significantly overrepresented when compared to the complete library
+- Highlighting interesting virus/bacteria groups at rank level that seems to appear significantly overrepresented when compared to the complete library (excluding the subgroup of interest)
 
-- Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus rank of interest and the ratio of group1/group2 of the complete library (excluding the group of interest)
+- Adjusted pvals (BH) were calculated using MW test comparing the ratio of group1/group2 of the bacteria/virus rank of interest and the ratio of group1/group2 of the complete library (excluding the subgroup of interest)
 
 ```{r}
 #highlight_colors <- c("#7570b3", "cadetblue3", "gold", "lightsalmon2", "chartreuse4", "magenta4", "royalblue2", "tomato2", "yellow4", "springgreen2")
@@ -409,6 +409,7 @@ for(rank_level in rank_levels) {
             target_cols = c(rank_level, "Description")
           )
       }
+            
       p <- make_interactive_scatterplot(comparison_df = comparison_df,
                                group1 = group1, group2 = group2, N = c(N1,N2),
                                highlight_cols   = flags, 
@@ -634,12 +635,9 @@ plot_correlation_distribution(
 
 - Represent the main antigen subgroups ratio distribution within the library (including bacteria/virus of interest) that exhibits differential binding between groups.
 
-- If ratio is positive between group1/group2, this indicate that group1 (eg. Controls) shows more representation of that peptide subgroup than group2 (e.g HCC)
+- If ratio is negative, this indicate that group1 (eg. Controls) shows more representation of that peptide subgroup than group2 (e.g Disease)
 
 - **This is a stat testing approach, might not work well for small sample sizes or be biased**
-
-- **By default, a 0% prevalence peptide filter is applied (user can defined it) (only dropping peptides below that threshold in both groups)**
-
 
 ```{r sig-subgroups‐all‐ranks, results='asis', fig.width=8, fig.height=8}
 for (rank_level in rank_levels){

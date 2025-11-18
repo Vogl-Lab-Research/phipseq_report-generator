@@ -39,10 +39,10 @@ if (!file.exists(config_path)) stop("❌ Config file not found: ", config_path)
 config <- yaml::read_yaml(config_path)
 
 # Extract values from config
-cmp_file        <- config$comparisons_file #"../MCI-Dementia/Metadata/MCI_Dementia_comparison_v0507.csv"
-samples_file    <- config$samples_file #"../MCI-Dementia/Metadata/MCI_Dementia_cohort_data_v0507.csv"
-exist_file      <- config$exist_file #"../MCI-Dementia/Data/exist.csv"
-timepoints_file <- config$timepoints_file %||% NULL  # allow missing
+cmp_file        <- config$comparisons_file #"/home/creyna/Vogl-lab_Projects_git/LLNEXT/Metadata/infantB_BM_vs_MF_comparisons.csv"
+samples_file    <- config$samples_file #"/home/creyna/Vogl-lab_Projects_git/LLNEXT/Metadata/matchedsamples_with_BinfantBM_vs_Binfant_MF.csv"
+exist_file      <- config$exist_file #"/home/creyna/Vogl-lab_Projects_git/LLNEXT/Data/exist.csv"
+timepoints_file <- config$timepoints_file %||% NULL  # "/home/creyna/Vogl-lab_Projects_git/LLNEXT/Metadata/LLNext_ind_timepoints.csv"  # allow missing
 prevalence_threshold <- config$prevalence_threshold %||% 0
 extra_cols      <- config$extra_cols %||% character()  # allow missing  #c("sex", "age")
 output_dir      <- config$output_dir %||% "reports" #"../MCI-Dementia/reports"
@@ -97,8 +97,8 @@ extra_syms <- syms(extra_cols)
 # Get the directory of this script
 args_full <- commandArgs(trailingOnly = FALSE)
 script_path <- dirname(normalizePath(sub("--file=", "", args_full[grep("--file=", args_full)])))
-template <- file.path(script_path, "template/template_phipseq.Rmd") #"template/template_phipseq.Rmd" 
-library_meta <- file.path(script_path, "library_meta/combined_libraries_with_lineages_important_info_nonAAseq.rds") #"library_meta/all_libraries_with_important_info.rds" 
+template <- file.path(script_path, "template/template_phipseq.Rmd") #"/home/creyna/Vogl-lab_Projects_git/phipseq_report-generator/template/template_phipseq.Rmd" 
+library_meta <- file.path(script_path, "library_meta/combined_libraries_with_lineages_important_info_nonAAseq.rds") #"/home/creyna/Vogl-lab_Projects_git/phipseq_report-generator/library_meta/combined_libraries_with_lineages_important_info_nonAAseq.rds" 
 lib_metadata_df <- readRDS(library_meta)
 
 
@@ -119,10 +119,11 @@ output_dir <- if (is_absolute_path(output_dir)) output_dir else file.path(getwd(
 if (!dir.exists(output_dir)) dir.create(output_dir)
 out_tables <- file.path(output_dir, "Tables")
 if (!dir.exists(out_tables)) dir.create(out_tables)
-
+#out_tables <- "/home/creyna/Vogl-lab_Projects_git/LLNEXT/reports"
 
 # Create reports
 for(i in seq_len(nrow(comparisons))) { 
+  #i <- 1
   comp <- comparisons[i, ]
   name <- pull(comp[1])
   g1   <- pull(comp[2])

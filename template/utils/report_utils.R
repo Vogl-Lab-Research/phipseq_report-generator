@@ -52,6 +52,47 @@ SUBGROUPS_TO_NAME <- c(
 #     )
 # }
 
+# ---- Format p-values nicely ----
+format_pval <- function(p, alpha = 0.05) {
+  
+  # helper to drop trailing zeros (e.g. "1.00" → "1", "0.500" → "0.5")
+  drop_zeros <- function(x) sub("\\.?0+$", "", x)
+  
+  if (is.na(p)) return("NA")
+  
+  # -------------------------------------------------------------------------
+  # 1. Non-significant (p > alpha)
+  # -------------------------------------------------------------------------
+  if (p > alpha) {
+    raw <- formatC(p, digits = 2, format = "f")
+    raw <- drop_zeros(raw)
+    return(paste0("ns [", raw, "]"))
+  }
+  
+  # -------------------------------------------------------------------------
+  # 2. Normal fixed-decimal formatting (0.001 ≤ p ≤ alpha)
+  # -------------------------------------------------------------------------
+  if (p >= 0.001) {
+    raw <- formatC(p, digits = 3, format = "f")
+    raw <- drop_zeros(raw)
+    return(raw)
+  }
+  
+  # -------------------------------------------------------------------------
+  # 3. Scientific notation (< 0.001)
+  # -------------------------------------------------------------------------
+  raw <- formatC(p, digits = 2, format = "e")
+  
+  # remove unnecessary zeros: "1.00e-05" → "1e-05"
+  raw <- sub("([0-9]+)\\.0+e", "\\1e", raw)
+  
+  # remove trailing zeros inside "1.10e-04" → "1.1e-04"
+  raw <- sub("([0-9]+\\.[0-9]*[1-9])0+e", "\\1e", raw)
+  
+  return(raw)
+}
+
+
 
 add_flag_by_patterns <- function(df,
                                  new_flag,
@@ -260,10 +301,11 @@ plot_enrichment_counts <- function(features_target,
 ######################################################
 ####### plot  enrichment and diversity################
 ######################################################
-plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pairwise_comparisons, 
+plot_groups_boxplots <- function(data, group_col, values_col, custom_colors,
                                  label_axis = NA, sig_level   = 0.05,
                                  #max_sig       = 6,
                                  label_format  = "p.format"){  # or "p.signif") 
+  
   # Convert grouping column name to symbol
   group_sym <- sym(group_col)
   values_sym <- sym(values_col)
@@ -284,46 +326,37 @@ plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pai
     df_counts[[group_col]]
   )
   
-  # — compute pairwise p-values and keep only those < sig_level —
-  sig_comparisons <- purrr::keep(pairwise_comparisons, function(pair) {
-    g1 <- pair[1]
-    g2 <- pair[2]
-    # extract the raw values for each group
-    x <- data %>% filter(!!group_sym == g1) %>% pull(!!values_sym)
-    y <- data %>% filter(!!group_sym == g2) %>% pull(!!values_sym)
-    wt <- wilcox.test(x, y, exact = FALSE)
-    wt$p.value < sig_level
-  })
+  ## ---- SIGNIFICANCE TESTING SECTION ----
+  n_groups <- n_distinct(data[[group_col]])
   
-  # pairwise_p <-  purrr::map_dfr(pairwise_comparisons, function(pair) {
-  #   g1 <- pair[1]; g2 <- pair[2]
-  #   x  <- data %>% filter(!!group_sym == g1) %>% pull(!!values_sym)
-  #   y  <- data %>% filter(!!group_sym == g2) %>% pull(!!values_sym)
-  #   p  <- wilcox.test(x, y, exact = FALSE)$p.value
-  #   tibble::tibble(group1 = g1, group2 = g2, p.value = p)
-  # })
-  # 
-  # # 2) keep only p < sig_level, sort, take top max_sig
-  # top_pairs <- pairwise_p %>%
-  #   filter(p.value < sig_level) %>%
-  #   arrange(p.value) %>%
-  #   slice_head(n = max_sig)
-  # 
-  # # 3) turn that back into the list-of-pairs format
-  # sig_comparisons <- purrr::pmap(
-  #   list(top_pairs$group1, top_pairs$group2),
-  #   c
-  # )  
-  # Build the plot:
+  if (n_groups == 2) {
+    # --- Wilcoxon test ---
+    pvals_df <- data %>%
+      rstatix::pairwise_wilcox_test(formula = as.formula(paste0("`", values_col, "` ~ ", group_col)) ) %>%
+      rstatix::add_xy_position(x = group_col) %>%
+      dplyr::filter(p <= sig_level) %>% 
+      dplyr::rename(p.signif = p.adj.signif) %>%
+      mutate(p.format = sapply(p.adj, format_pval))
+  } else if (n_groups > 2) {
+    kw <- kruskal_test(data, formula = as.formula(paste0("`", values_col, "` ~ ", group_col)) )
+    if (kw$p <= sig_level) {
+      pvals_df <- data %>%
+        rstatix::dunn_test( formula = as.formula(paste0("`", values_col, "` ~ ", group_col)), p.adjust.method = "BH") %>%
+        rstatix::add_xy_position(x = group_col) %>%
+        dplyr::filter(p.adj <= sig_level) %>% 
+        dplyr::rename(p.signif = p.adj.signif) %>%
+        mutate(p.format = sapply(p.adj, format_pval))
+    }
+  }
+  
+  
+  
+  ## ---- BUILD PLOT ----
   p <- ggplot(data, aes(x = !!group_sym, y = !!values_sym)) +
     geom_boxplot(show.legend = FALSE, outlier.shape = NA, aes(fill = !!group_sym)) +
-    #geom_boxplot(show.legend = FALSE, outlier.shape = NA, fill="gray80") +  # Hide legend if desired
-    #geom_jitter(show.legend = FALSE, aes(color = !!group_sym), width = 0.2, alpha = 0.7, size = 1) +
-    geom_jitter(color = "black", size = 1, width = 0.2, alpha = 0.3, show.legend = FALSE) +  
-    scale_fill_manual(values = custom_colors) +  # Assign custom colors
-    #scale_colour_manual(values = custom_colors) +  # Assign custom colors
-    
-    scale_x_discrete(labels = x_labels) +         # Use the custom labels
+    geom_jitter(color = "black", size = 1, width = 0.2, alpha = 0.3, show.legend = FALSE) +
+    scale_fill_manual(values = custom_colors) +
+    scale_x_discrete(labels = x_labels) +
     theme_bw(base_size = 13) +
     theme(
       axis.text.x = element_text(angle = 45, vjust = 0.6, hjust = 0.5),
@@ -334,51 +367,27 @@ plot_groups_boxplots <- function(data, group_col, values_col, custom_colors, pai
       plot.margin = margin(0, 1, 0, 1, unit = "pt"),
       panel.grid = element_blank()
     ) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) 
-  # ggpubr::stat_compare_means(method = "wilcox.test", 
-  #                            comparisons = pairwise_comparisons, 
-  #                            label = "p.format",#"p.signif",  # Display significance level (e.g., * or **)
-  #                            hide.ns = T,     # Option to hide non-significant comparisons
-  #                            size = 4)
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
   
-  
-  
-  # only add stat_compare_means if there are any significant comparisons
-  if (length(sig_comparisons) > 0) {
-    p <- p +
-      stat_compare_means(
-        method       = "wilcox.test",
-        comparisons  = sig_comparisons,
-        label        = label_format,
-        hide.ns      = F,    # hides any “ns”
-        size         = 4.5, #4.5AA if numbres, 5 if ns, 7 for peptide level -  paper
-        tip.length   = 0.02
-      )
+  if (nrow(pvals_df) > 0) {
+    p <- p + stat_pvalue_manual(
+      data          = pvals_df,
+      label         = label_format,
+      y.position    = "y.position",
+      tip.length    = 0.02,
+      bracket.size  = 0.25,
+      size          = 4.5,
+      inherit.aes   = FALSE,
+      step.increase = 0.1,
+      #bracket.nudge.y = 10
+    )
   }
   
-  # If label_axis is not NA, add custom axis labels. Assuming label_axis is a vector of length 2:
-  # if (is.na(label_axis[1])) {
-  #   p <- p + labs(
-  #     x = NULL
-  #   )
-  #   if(!is.na(label_axis[2])){
-  #     p <- p + labs(
-  #       y = label_axis[2]
-  #     )
-  #   }
-  # } else if (!is.na(label_axis[1]) && !is.na(label_axis[2])) {
-  #   p <- p + labs(
-  #     x = label_axis[1],
-  #     y = label_axis[2]
-  #   )
-  # }
-  
-  # Build a named list for labs(), turning NA → NULL:
   labs_args <- list(
     x = if (is.na(label_axis[1])) NULL else label_axis[1],
     y = if (is.na(label_axis[2])) NULL else label_axis[2]
   )
-  # Always call labs() so that x=NULL actually removes the default
+  
   p <- p + do.call(labs, labs_args)
   
   return(p)
@@ -601,6 +610,9 @@ plot_sex_age_distribution <- function(data,
 ####################################
 ##########Scatterplot###############
 ####################################
+####################################
+##########Scatterplot###############
+####################################
 make_interactive_scatterplot <- function(comparison_df,
                                          group1, group2, N,
                                          highlight_cols   = NULL,
@@ -679,7 +691,8 @@ make_interactive_scatterplot <- function(comparison_df,
       w$p.value
     })
     pvals_adj <- p.adjust(pvals, method = "BH")
-    fmt_p <- format.pval(pvals_adj, digits = 1, eps = 0.001)
+    fmt_p <- sapply(pvals_adj, format_pval)
+    #fmt_p <- format.pval(pvals_adj, digits = 1, eps = 0.001)
     #fmt_p <- formatC(pvals_adj, format="e", digits=1) # e.g. "1.2e-03" → "1.2×10⁻³"
     #fmt_p <- sub("e([-+]?)([0-9]+)$", "×10\\^\\2", fmt_p)
     legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
@@ -762,10 +775,11 @@ make_interactive_scatterplot <- function(comparison_df,
   p <- ggplot(comparison_df,
               aes(x = !!sym(group1), y = !!sym(group2))) +
     geom_point(color_aes, alpha = 0.65) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray4") +
     color_scale +
     labs(
-      x = paste0("% ", group1, " in whom\na peptide is significantly bound\n(n = ", N[1], ")"),
-      y = paste0("% ", group2, " in whom\na peptide is significantly bound\n(n = ", N[2], ")")
+      x = paste0("% ", group1, " in whom a peptide is\nsignificantly bound (n = ", N[1], ")"),
+      y = paste0("% ", group2, " in whom a peptide is\nsignificantly bound (n = ", N[2], ")")
     ) +
     theme_bw(base_size = 12) +
     theme(
@@ -1146,6 +1160,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
       filter(is.finite(log2ratio), is.finite(-log10(pvals_not_adj))) %>%  # drop any Inf or NaN 
       arrange(highlight)
 
+    
     pvals <- sapply(highlight_cols, function(flag) {
       x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
       #y <- comparison_df$log2ratio
@@ -1155,9 +1170,12 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
       w$p.value
     })
     pvals_adj <- p.adjust(pvals, method = "BH")
-    fmt_p <- format.pval(pvals_adj, digits = 1, eps = 0.001)
+    #fmt_p <- format.pval(pvals_adj, digits = 1, eps = 0.001)
+    fmt_p <- sapply(pvals_adj, format_pval)
     legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
-    
+
+
+        
     # colors: user‐supplied or a simple default palette
     if (is.null(highlight_colors)) {
       # pick a palette for the flags
@@ -1234,7 +1252,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
   }
   
   
-  p <- ggplot(comparison_df, aes(x = log2(ratio), y=-log10(pvals_not_adj))) +
+  p <- ggplot(comparison_df, aes(x = -log2(ratio), y=-log10(pvals_not_adj))) +
     
     # #geom_point(data = subset(comparison_df, passed_not_adj == "Yes" & log2(ratio) > 0), 
     # #                   aes(color = "significant prior correction group 1"), alpha = 0.6) +
@@ -1575,7 +1593,7 @@ plot_correlation <- function(phiseq_df, metadata,
   p <- ggplot(cor_df, aes(x = Var1, y = Var2, fill = value)) +
     geom_tile(colour = "gray60", linewidth = 0.25) +
     scale_fill_distiller(palette = "RdYlBu", direction = -1, limits = c(0, 1),
-                         na.value = "gray", name = "Pearson\nCorrelation") +
+                         na.value = "gray", name = "Phi\nCoefficient") +
     coord_fixed() +
     theme_bw() +
     theme(
@@ -1875,6 +1893,12 @@ plot_ratios_by_subgroup <- function(
     ) %>% 
     bind_rows(subgroup_vs_rest)
   
+  # new format
+  pairwise_subgroups <- pairwise_subgroups %>%
+    mutate(
+      p.adj.label = sapply(p.adj, format_pval)  # formatted version
+    )
+  
   # Plot 1: boxplot
   base_cols <- RColorBrewer::brewer.pal(9, "Paired")
   names(base_cols) <- SUBGROUPS_ORDER[1:9]
@@ -1903,7 +1927,7 @@ plot_ratios_by_subgroup <- function(
            )
           )
   
-  p1 <- ggplot(long_ratios, aes(subgroup, log2ratio)) +
+  p1 <- ggplot(long_ratios, aes(subgroup, -log2ratio)) +
     geom_violin(fill = "gray80") +    
     geom_jitter(aes(color = subgroup), width = 0.2, alpha = 0.5, size = 1) +
     stat_summary(fun = median, geom = "crossbar", color = "black", size = 0.5, fatten = 1) + #geom = "errorbar", aes(ymin = ..y.., ymax = ..y..) ) +
@@ -1926,7 +1950,8 @@ plot_ratios_by_subgroup <- function(
   # Plot 2: heatmap
   p2 <- ggplot(pairwise_subgroups, aes(group1, group2, fill = p.adj.signif)) +
     geom_tile(color = "grey90", size = 0.2, show.legend = T) +
-    geom_text(aes(label = sprintf("%.1g", p.adj)), size = 1.5, colour = "black") +
+    #geom_text(aes(label = sprintf("%.1g", p.adj)), size = 1.5, colour = "black") +
+    geom_text(aes(label = p.adj.label), size = 1.5, colour = "black") +
     
     scale_fill_manual(
       values = c(
@@ -2508,12 +2533,11 @@ compute_beta_diversity <- function(ct, sample_meta, group_col = "Group", method 
 
 
 ## plots
-
 plot_beta_dispersion <- function(disp, custom_colors, sig_level   = 0.05, label_format  = "p.format") {
   
   df <- data.frame(SampleName = names(disp$distances), Distance = disp$distances, Group = disp$group)
 
-  pairwise_comparisons <- combn(levels(factor(df[["Group"]])), 2, simplify = FALSE)
+  #pairwise_comparisons <- combn(levels(factor(df[["Group"]])), 2, simplify = FALSE)
   
   
   p <- plot_groups_boxplots(data = df, 
@@ -2522,7 +2546,7 @@ plot_beta_dispersion <- function(disp, custom_colors, sig_level   = 0.05, label_
                             custom_colors = custom_colors, 
                             sig_level   = sig_level,
                             label_format  = label_format,
-                            pairwise_comparisons = pairwise_comparisons,
+                            #pairwise_comparisons = pairwise_comparisons,
                             label_axis = c("Group", "Distance to centroid"))
   
   return(p)
@@ -2548,8 +2572,11 @@ plot_pcoa <- function(beta_diversity, custom_colors,
   p_disp_val <- disp_perm$tab$`Pr(>F)`[1]
   
   # build your labels
-  lab_perm <- paste0("PERMANOVA p = ", format.pval(p_perm_val, digits = 1, eps = 0.01))
-  lab_disp <- paste0( "Dispersion   p = ", format.pval(p_disp_val, digits = 1, eps = 0.01))
+  #lab_perm <- paste0("PERMANOVA p = ", format.pval(p_perm_val, digits = 1, eps = 0.01))
+  #lab_disp <- paste0( "Dispersion   p = ", format.pval(p_disp_val, digits = 1, eps = 0.01))
+  
+  lab_perm <- paste0("PERMANOVA p = ", format_pval(p_perm_val))
+  lab_disp <- paste0( "Dispersion   p = ", format_pval(p_disp_val))
   
   
   p <- ggplot(mds_scores, aes(x = PCoA1, y = PCoA2, fill = Group))
@@ -2767,7 +2794,9 @@ prep_taxa_stats <- function(
     rstatix::dunn_test(Abundance ~ Group, p.adjust.method = "BH") %>%
     rstatix::add_xy_position(x = "Group") %>%
     dplyr::filter(p.adj < 0.05) %>%
-    dplyr::mutate(p.adj.label = signif(p.adj, 2)) %>%
+    dplyr::mutate(p.adj.label = signif(p.adj, 2)) %>% # old way
+    #dplyr::mutate(p.adj.label = format_pval(p.adj)) %>% # new format
+    
     dplyr::ungroup()
   
   # pick top_n Rank
