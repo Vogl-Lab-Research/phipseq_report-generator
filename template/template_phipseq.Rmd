@@ -367,6 +367,8 @@ significant_taxa_list <- list()
 
 ### Scatterplot  {.tabset}
 
+- Display top 5 taxa and corresponding pval adjusted
+
 ```{r sig-scatter‐all‐ranks, results='asis'}
 results_list <- list()
 for(rank_level in rank_levels) {
@@ -385,10 +387,11 @@ for(rank_level in rank_levels) {
       N2 <- num_samples_per_group[[group_col]][[group2]]
       comparison_df <- comparison_group_tests[[group_col]][[comp_name]]$comparison_df
      
-      significant_taxa_list[[rank_level]][[comp_name]] <- make_flag_lists_from_top_names(comparison_df = comparison_df, lineage_col = rank_level, 
-                                                                                         n = 10, colors = highlight_colors)
-
-
+      sig_taxa <- get_top_significant_taxa_df(comparison_df, rank_level)
+      output_tab <- paste0(out_dir,"/table_ratioSignificance_taxon-versus-restTaxa_", rank_level, "_", group_col, "_", comp_name,".csv")
+      readr::write_csv(sig_taxa, output_tab)
+      significant_taxa_list[[rank_level]][[comp_name]] <- make_flag_lists(sig_taxa, n = 10, colors = highlight_colors)
+    
       all_flags <- names(significant_taxa_list[[rank_level]][[comp_name]]$flags_to_patterns)
       # if there are no flags at all, skip this comparison
       if (length(all_flags) == 0) {
@@ -415,6 +418,7 @@ for(rank_level in rank_levels) {
                                highlight_cols   = flags, 
                                #highlight_colors = c(Bacteriodales = "#1b9e77", Enterovirus = "#7570b3"),
                                highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags],
+                               pvals_adj = significant_taxa_list[[rank_level]][[comp_name]]$p.adj[1:n_flags],
                                default_color    = "gray80", 
                                interactive = T)
       scatter_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
@@ -432,6 +436,8 @@ for(rank_level in rank_levels) {
 
 
 ### Volcano plot {.tabset}
+
+- Display top 10 taxa and corresponding pval adjusted
 
 ```{r sig-volcano‐all‐ranks, results='asis'}
 results_list <- list()
@@ -487,6 +493,7 @@ for(rank_level in rank_levels) {
                                group1 = group1, group2 = group2, fc_cut = 1, p_cut = 0.05,
                                highlight_cols   = flags,  
                                highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags],
+                               pvals_adj = significant_taxa_list[[rank_level]][[comp_name]]$p.adj[1:n_flags],
                                default_color    = "gray80", 
                                interactive = T)
       volcano_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
@@ -637,7 +644,7 @@ plot_correlation_distribution(
 
 - If ratio is negative, this indicate that group1 (eg. Controls) shows more representation of that peptide subgroup than group2 (e.g Disease)
 
-- **This is a stat testing approach, might not work well for small sample sizes or be biased**
+- **Heatmap displays also pairwise p.adj values for the selected subgroups (e.g. top 10 species). Multiple testing correction was only applied to the raw p-values obtained from the limited set of 'subgroup1-vs-subgroup2 library' tests shown in the heatmap plot. In contrast, the p.adj values in the scatter plots (and first column of heatmap indicated with complete_library) were calculated by applying BH method to the full set of raw p-values from all 'taxa-vs-rest' comparisons performed across all available taxa. BH procedure is sensitive to the total number of tests, which could result in different adjusted p-values for the same underlying raw comparison.**
 
 ```{r sig-subgroups‐all‐ranks, results='asis', fig.width=8, fig.height=8}
 for (rank_level in rank_levels){
@@ -692,6 +699,7 @@ for (rank_level in rank_levels){
       p_taxa <- plot_ratios_by_subgroup(comparison_df, group1, group2, subgroup_lib_df, 
                                    subgroup_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors,
                                    add_subgroups = flags,
+                                   pvals_adj = significant_taxa_list[[rank_level]][[comp_name]]$p.adj,
                                    prevalence_threshold = prevalence_threshold,
                                    which_subgroups = "added",
                                    x_label = paste("Significant", rank_level, "of antigen library", sep = " ")

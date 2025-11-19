@@ -606,10 +606,6 @@ plot_sex_age_distribution <- function(data,
   return(p)
 }
 
-
-####################################
-##########Scatterplot###############
-####################################
 ####################################
 ##########Scatterplot###############
 ####################################
@@ -617,6 +613,7 @@ make_interactive_scatterplot <- function(comparison_df,
                                          group1, group2, N,
                                          highlight_cols   = NULL,
                                          highlight_colors = NULL,
+                                         pvals_adj = NULL,
                                          default_color    = "gray70",
                                          #multiple_color   = "black",
                                          significant_colors = c(
@@ -682,21 +679,21 @@ make_interactive_scatterplot <- function(comparison_df,
       ) %>%
       arrange(highlight)
     
-    pvals <- sapply(highlight_cols, function(flag) {
-      x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
-      #y <- comparison_df$log2ratio
-      # better subset y to only non-flag too:
-      y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
-      w <- wilcox.test(x, y)
-      w$p.value
-    })
-    pvals_adj <- p.adjust(pvals, method = "BH")
-    fmt_p <- sapply(pvals_adj, format_pval)
-    #fmt_p <- format.pval(pvals_adj, digits = 1, eps = 0.001)
-    #fmt_p <- formatC(pvals_adj, format="e", digits=1) # e.g. "1.2e-03" → "1.2×10⁻³"
-    #fmt_p <- sub("e([-+]?)([0-9]+)$", "×10\\^\\2", fmt_p)
-    legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
     
+    if (is.null(pvals_adj)){
+      pvals <- sapply(highlight_cols, function(flag) {
+        x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
+        #y <- comparison_df$log2ratio
+        # better subset y to only non-flag too:
+        y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+        w <- wilcox.test(x, y)
+        w$p.value
+      })
+      pvals_adj <- p.adjust(pvals, method = "BH")
+    }
+    fmt_p <- sapply(pvals_adj, format_pval)
+    legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
+      
     # colors: user‐supplied or a simple default palette
     if (is.null(highlight_colors)) {
       # pick a palette for the flags
@@ -828,8 +825,27 @@ make_interactive_scatterplot <- function(comparison_df,
         ),
         margin     = list(l = 80, r = 80, b = 80, t = 80, pad = 0),
         hoverlabel = list(font = list(size = 10)),
-        xaxis      = list(scaleratio = 1, scaleanchor = "y"),
-        yaxis      = list(scaleratio = 1, scaleanchor = "x")
+        # xaxis      = list(scaleratio = 1, scaleanchor = "y"),
+        # yaxis      = list(scaleratio = 1, scaleanchor = "x")
+        # -----------------------------------------------------------------
+        # --- CHANGES TO ADD THE PLOT FRAME (AXIS LINES) ---
+        # -----------------------------------------------------------------
+        xaxis      = list(
+          scaleratio = 1, 
+          scaleanchor = "y",
+          showline = TRUE,         # Add the axis line
+          linewidth = 1,           # Set line thickness (optional, default is fine)
+          linecolor = 'black',     # Set line color
+          mirror = TRUE            # Mirror the line on the top
+        ),
+        yaxis      = list(
+          scaleratio = 1, 
+          scaleanchor = "x",
+          showline = TRUE,         # Add the axis line
+          linewidth = 1,           # Set line thickness
+          linecolor = 'black',     # Set line color
+          mirror = TRUE            # Mirror the line on the right
+        )
       )
     )
   } else {
@@ -1095,6 +1111,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
                                      p_cut  = 0.05,
                                      highlight_cols   = NULL,
                                      highlight_colors = NULL,
+                                     pvals_adj = NULL,
                                      default_color    = "gray70",
                                      significant_colors = c(
                                        "not significant"                 = "dodgerblue",
@@ -1159,23 +1176,22 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
       ) %>%
       filter(is.finite(log2ratio), is.finite(-log10(pvals_not_adj))) %>%  # drop any Inf or NaN 
       arrange(highlight)
-
     
-    pvals <- sapply(highlight_cols, function(flag) {
-      x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
-      #y <- comparison_df$log2ratio
-      # better subset y to only non-flag too:
-      y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
-      w <- wilcox.test(x, y)
-      w$p.value
-    })
-    pvals_adj <- p.adjust(pvals, method = "BH")
-    #fmt_p <- format.pval(pvals_adj, digits = 1, eps = 0.001)
+    if (is.null(pvals_adj)){
+      pvals <- sapply(highlight_cols, function(flag) {
+        x <- comparison_df %>% filter( !!sym(flag) ) %>% pull(log2ratio)
+        #y <- comparison_df$log2ratio
+        # better subset y to only non-flag too:
+        y <- comparison_df %>% filter(! (!!sym(flag)) ) %>% pull(log2ratio)
+        w <- wilcox.test(x, y)
+        w$p.value
+      })
+      pvals_adj <- p.adjust(pvals, method = "BH")
+    }
     fmt_p <- sapply(pvals_adj, format_pval)
     legend_labels <- paste0(highlight_cols, " (P=", fmt_p, ")")
-
-
-        
+    
+    
     # colors: user‐supplied or a simple default palette
     if (is.null(highlight_colors)) {
       # pick a palette for the flags
@@ -1322,9 +1338,27 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
         #margin      = list(l = 0, r = 0, t = 0, b = 0, pad = 2),
         margin = margins, #list(l   = 80, r   = 120, t   = 80, b   = 40, pad = 0),
         hoverlabel  = list(font = list(size = 10)),
-        xaxis       = list(automargin = TRUE),
-        yaxis       = list(automargin = TRUE,
-                           title      = list(standoff = 10)),
+        # xaxis       = list(automargin = TRUE),
+        # yaxis       = list(automargin = TRUE,
+        #                    title      = list(standoff = 10)),
+        
+        xaxis      = list(
+          automargin = TRUE,
+          showline = TRUE,         #  Add the axis line
+          linewidth = 1,           #  Set line thickness (optional, default is fine)
+          linecolor = 'black',     #  Set line color
+          mirror = TRUE            #  Mirror the line on the top
+        ),
+        yaxis      = list(
+          automargin = TRUE,
+          title      = list(standoff = 10),
+          showline = TRUE,         #  Add the axis line
+          linewidth = 1,           #  Set line thickness
+          linecolor = 'black',     #  Set line color
+          mirror = TRUE            #  Mirror the line on the right
+        ),
+        
+        
         autosize    = FALSE
       )
     )
@@ -1332,6 +1366,8 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
     return(p)
   }
 }
+
+
 
 #########################################
 ###############MDS#######################
@@ -1780,8 +1816,9 @@ plot_ratios_by_subgroup <- function(
     group2,
     subgroup_lib_df,
     subgroup_colors      = NULL,
-    prevalence_threshold = 0,
+    pvals_adj = NULL,
     add_subgroups        = NULL,
+    prevalence_threshold = 0,
     which_subgroups      = c("all", "default", "added"),
     x_label = "Subgroups of the antigen library"
 ) {
@@ -1838,24 +1875,26 @@ plot_ratios_by_subgroup <- function(
            )
   
   # compute a named vector of raw p‐values, one flag at a time
-  pvals_lib <- sapply(keep_flags, function(flag) {
-    in_sub <- comparison_df %>% filter(.data[[flag]]) %>% pull(log2ratio)
-    # “rest” is everything _not_ in that subgroup:
-    out_sub <- comparison_df %>% filter(! .data[[flag]]) %>% pull(log2ratio)
-    
-    if (sum(!is.na(in_sub)) < 1 || sum(!is.na(out_sub)) < 1) {
-      message("Skipping flag '", flag, "' due to insufficient data.")
-      return(NA_real_)
-    }
-    
-    wilcox.test(in_sub, out_sub)$p.value
-  })
+  if (is.null(pvals_adj)){
+    pvals_adj <- sapply(keep_flags, function(flag) {
+      in_sub <- comparison_df %>% filter(.data[[flag]]) %>% pull(log2ratio)
+      # “rest” is everything _not_ in that subgroup:
+      out_sub <- comparison_df %>% filter(! .data[[flag]]) %>% pull(log2ratio)
+      
+      if (sum(!is.na(in_sub)) < 1 || sum(!is.na(out_sub)) < 1) {
+        message("Skipping flag '", flag, "' due to insufficient data.")
+        return(NA_real_)
+      }
+      
+      wilcox.test(in_sub, out_sub)$p.value
+    })
+    pvals_adj <- p.adjust(pvals_adj, method = "BH")
+  }
   
   
-  pvals_lib <- p.adjust(pvals_lib, method = "BH")
   subgroup_vs_rest <- tibble::tibble(
     subgroup_flag = keep_flags,       # temporary holder of the internal names
-    p.adj         = pvals_lib
+    p.adj         = pvals_adj
   ) %>%
     mutate(
       group2 = all_names[subgroup_flag],           # map to your “pretty” names
@@ -2015,6 +2054,72 @@ plot_ratio_venn <- function(
 
 
 
+
+#' Creates a custom lineage column based on flexible rules.
+#'
+#' @param comparison_df The data frame containing the lineage columns (e.g., Class, Genus, Species).
+#' @param default_lineage_col The lineage column to use as the default for all
+#'   taxa not matched by the rules (e.g., "Species").
+#' @param custom_rules A data frame or list of lists defining the custom groups.
+#'   Each row/list must have:
+#'   - 'lineage_col': The column name to check (e.g., "Class", "Genus").
+#'   - 'taxa_name': The specific name to match (e.g., "Bacteroidales", "Streptococcus").
+#' @param new_col_name The name for the resulting custom column (default: "Custom_Taxa").
+#' @return The data frame with the new custom lineage column added.
+create_flexible_taxa_column <- function(
+    df,
+    default_lineage_col,
+    custom_rules,
+    new_col_name = "custom_taxa"
+) {
+  # --- 1. VALIDATION ---
+  
+  # Check if the default column exists
+  if (!(default_lineage_col %in% names(df))) {
+    stop("Default lineage column '", default_lineage_col, "' not found in data frame.")
+  }
+  
+  # Ensure custom_rules is a data frame for easier iteration
+  if (!is.data.frame(custom_rules)) {
+    custom_rules <- data.frame(custom_rules)
+  }
+  
+  # Check if all columns specified in custom_rules exist
+  required_cols <- unique(custom_rules$lineage_col)
+  missing_cols <- required_cols[!(required_cols %in% names(df))]
+  if (length(missing_cols) > 0) {
+    stop("Lineage columns specified in rules are missing: ", paste(missing_cols, collapse = ", "))
+  }
+  
+  # --- 2. BUILD MUTATE LOGIC (using case_when) ---
+  
+  # Initialize the case_when statement with the TRUE (default) condition
+  # We use !!sym(default_lineage_col) to dynamically select the column
+  case_conditions <- list(quo(TRUE ~ !!rlang::sym(default_lineage_col)))
+  
+  # Build the custom rules (Rule 1, Rule 2, etc. - in order)
+  for (i in seq_len(nrow(custom_rules))) {
+    rule <- custom_rules[i, ]
+    
+    lineage_sym <- sym(rule$lineage_col)
+    taxa_name_val <- rule$taxa_name
+    
+    # Create the condition: e.g., Class == "Bacteroidales" ~ "Bacteroidales"
+    condition <- quo((!!lineage_sym == !!taxa_name_val) ~ !!taxa_name_val)
+    case_conditions <- c(list(condition), case_conditions) # Prepend to apply rules first
+  }
+  
+  # --- 3. APPLY MUTATION ---
+  
+  # Use !!! to splice the list of quoted expressions into the case_when function
+  df <- df %>%
+    mutate(
+      !!sym(new_col_name) := case_when(!!!case_conditions)
+    )
+  
+  return(df)
+}
+
 get_top_significant_taxa <- function(comparison_df, lineage_col, n = 8) {
   # turn the string into a symbol once
   lineage_sym <- sym(lineage_col)
@@ -2045,25 +2150,77 @@ get_top_significant_taxa <- function(comparison_df, lineage_col, n = 8) {
     str_squish()                  # collapse multiple spaces, trim
 }
 
+
+get_top_significant_taxa_df <- function(comparison_df, lineage_col){#, n = 100) {
+  # turn the string into a symbol once
+  lineage_sym <- sym(lineage_col)
+  
+  top_taxa_df <- comparison_df %>%
+    # drop rows where that lineage is missing
+    filter(!is.na(!!lineage_sym)) %>%
+    # make sure we have the same 'ratio' name
+    mutate(ratio = log2(ratio)) %>%
+    # get one row per lineage
+    distinct(!!lineage_sym) %>%
+    # for each lineage, pull out x = that group, y = all others
+    mutate(
+      x = purrr::map(!!lineage_sym, ~ comparison_df$ratio[comparison_df[[lineage_col]] == .x]),
+      y = purrr::map(!!lineage_sym, ~ comparison_df$ratio[comparison_df[[lineage_col]] != .x]),
+      p = purrr::map2_dbl(x, y, ~ wilcox.test(.x, .y)$p.value)
+    ) %>%
+    select(!!lineage_sym, p) %>%
+    # FDR‐adjust
+    adjust_pvalue(method = "BH") %>%
+    arrange(p.adj) %>%
+    # take the top n
+    #slice_head(n = n) %>%
+    # ---- CLEAN THE NAMES HERE ----
+  # Modify the lineage column in place
+  mutate(
+    !!lineage_sym := str_remove_all(!!lineage_sym, "\\[|\\]"), # drop any brackets
+    !!lineage_sym := str_squish(!!lineage_sym)               # collapse multiple spaces, trim
+  ) %>%
+    # Select the cleaned lineage and the adjusted p-value
+    select(!!lineage_sym, p, p.adj)
+  
+  return(top_taxa_df)
+}
+
+
+
 # Helper: generate flags_to_patterns and highlight_colors from top lineages
-# • comparison_df: data.frame with at least column `lineage_col` and `ratio`
-# • lineage_col: e.g. "species", "genus", etc.
-# • n: how many top lineages to return
+# • df: data.frame with at least column `lineage_col` and `ratio`
+# • n: how many top taxa to return
+# • taxa_labels: vector of taxa names to keep otherwise use given n
 # • colors: optional named or unnamed vector of colors matching length n
 # • brewer_palette, brewer_n: fallback palette settings
-make_flag_lists_from_top_names <- function(
-    comparison_df,
-    lineage_col,
+make_flag_lists <- function(
+    df,
     n = 10,
+    taxa_labels = NULL, # New: Vector of taxa names to select (e.g., c("species1", "species2"))
     colors = NULL,
     brewer_palette = "Set3",
     brewer_n = 12
 ) {
-  # 1) pull top-n lineages
-  top_names <- get_top_significant_taxa(comparison_df, lineage_col, n)
-  if (length(top_names) == 0) stop("No lineages found for ", lineage_col)
+  # Assuming the taxa column is the first one
+  taxa_col_name <- names(df)[1]
   
-  # 2) derive short keys from first three words
+  # Filter the data frame based on the provided labels
+  if (!is.null(taxa_labels)){
+    df_filtered <- df %>%
+      filter(!!sym(taxa_col_name) %in% taxa_labels)
+  } else {
+    df_filtered <- head(df, n)
+  }
+  
+  # Check if any of the labels were found
+  top_names <- df_filtered[[taxa_col_name]]
+  
+  if (length(top_names) == 0) {
+    stop("No specified taxa found in the first column of the input data frame.")
+  }
+  
+  # derive short keys from first three words
   short_keys <- sapply(top_names, function(x) {
     words <- strsplit(x, "\\s+")[[1]]
     paste(head(words, 3), collapse = " ")
@@ -2071,29 +2228,32 @@ make_flag_lists_from_top_names <- function(
   # ensure unique
   short_keys <- make.unique(short_keys)
   
-  # 3) build flags_to_patterns list: key = short_key, value = full name
+  # build flags_to_patterns list: key = short_key, value = full name
   flags_to_patterns <- setNames(as.list(top_names), short_keys)
+  n_taxa <- length(top_names)
   
-  # 4) build highlight_colors vector
+  # build highlight_colors vector
   if (!is.null(colors)) {
-    if (length(colors) != length(top_names)) {
-      stop("Length of 'colors' (", length(colors), ") must match number of flags (", length(top_names), ")")
+    if (length(colors) != n_taxa) {
+      stop("Length of 'colors' (", length(colors), ") must match number of flags (", n_taxa, ")")
     }
+    # Use the provided colors, named by the new short keys
     highlight_colors <- setNames(colors, short_keys)
   } else {
-    # fallback to brewer palette
-    pal <- colorRampPalette(brewer.pal(brewer_n, brewer_palette))(length(top_names))
+    pal <- colorRampPalette(brewer.pal(brewer_n, brewer_palette))(n_taxa)
     highlight_colors <- setNames(pal, short_keys)
   }
   
   # return
   list(
     flags_to_patterns = flags_to_patterns,
-    highlight_colors  = highlight_colors
+    highlight_colors  = highlight_colors,
+    p = df_filtered$p,
+    p.adj = df_filtered$p.adj
   )
 }
 
-# 
+
 # 
 # plot_ratios_by_subgroup <- function(comparison_df,
 #                               group1, group2,
