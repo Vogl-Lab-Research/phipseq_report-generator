@@ -614,6 +614,7 @@ make_interactive_scatterplot <- function(comparison_df,
                                          highlight_cols   = NULL,
                                          highlight_colors = NULL,
                                          pvals_adj = NULL,
+                                         reverse_legend = FALSE,
                                          default_color    = "gray70",
                                          #multiple_color   = "black",
                                          significant_colors = c(
@@ -771,8 +772,13 @@ make_interactive_scatterplot <- function(comparison_df,
   # build the ggplot + ggplotly -----------------------------------------------
   p <- ggplot(comparison_df,
               aes(x = !!sym(group1), y = !!sym(group2))) +
-    geom_point(color_aes, alpha = 0.65) +
-    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray4") +
+    geom_point(color_aes, alpha = 0.65)
+  
+  if(reverse_legend){
+    p <- p + guides(color = guide_legend(reverse = TRUE))
+  }
+  
+  p <- p + geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray4") +
     color_scale +
     labs(
       x = paste0("% ", group1, " in whom a peptide is\nsignificantly bound (n = ", N[1], ")"),
@@ -784,9 +790,10 @@ make_interactive_scatterplot <- function(comparison_df,
       panel.grid.minor = element_blank(),
       panel.border     = element_rect(colour = "black", fill = NA),
       plot.margin      = margin(t = 10, r = 15, b = 15, l = 10, unit = "pt"),
-      axis.text.y.left = element_text(size = 10, face = "italic"),
-      axis.title.x     = element_text(face = "bold"),
-      axis.title.y     = element_text(face = "bold")
+      axis.text.y.left = element_text(size = 12),
+      axis.text.x.bottom = element_text(size = 12)
+      #axis.title.x     = element_text(face = "bold"),
+      #axis.title.y     = element_text(face = "bold")
     ) +
     legend_theme
   
@@ -810,6 +817,24 @@ make_interactive_scatterplot <- function(comparison_df,
         }
         interactive_plot$x$data[[i]] <- tr
       }
+    }
+    
+    # --- Reverse legend starting from second element only ---
+    # --- Reverse legend starting from second element only ---
+    if (reverse_legend && length(interactive_plot$x$data) > 1) {
+      # Keep first trace as is
+      first_trace <- interactive_plot$x$data[[1]]
+      rest_traces <- interactive_plot$x$data[-1]
+      
+      n <- length(rest_traces)
+      
+      # Assign legendrank to reverse legend order, without touching trace order
+      for (i in seq_along(rest_traces)) {
+        rest_traces[[i]]$legendrank <- n - i + 1
+      }
+      
+      # Put everything back together
+      interactive_plot$x$data <- c(list(first_trace), rest_traces)
     }
     
     return(
@@ -1076,7 +1101,7 @@ group_test_analysis <- function(percentage_group_test_list, num_samples_per_grou
             )
           )  %>%
           dplyr::arrange(
-            Delta_ratio,            # then by direction of change
+            #Delta_ratio,            # then by direction of change
             !passed_bh,            # TRUE (significant) comes first
             pvals_bh,              # then smallest BH-adjusted p-values
             pvals_not_adj,        # then smallest raw p-values
@@ -1112,6 +1137,7 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
                                      highlight_cols   = NULL,
                                      highlight_colors = NULL,
                                      pvals_adj = NULL,
+                                     reverse_legend = FALSE,
                                      default_color    = "gray70",
                                      significant_colors = c(
                                        "not significant"                 = "dodgerblue",
@@ -1269,14 +1295,17 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
   
   
   p <- ggplot(comparison_df, aes(x = -log2(ratio), y=-log10(pvals_not_adj))) +
-    
     # #geom_point(data = subset(comparison_df, passed_not_adj == "Yes" & log2(ratio) > 0), 
     # #                   aes(color = "significant prior correction group 1"), alpha = 0.6) +
     # #geom_point(data = subset(comparison_df, passed_not_adj == "Yes" & log2(ratio) < 0), 
     # #                   aes(color = "significant prior correction group 2"), alpha = 0.6) +
-    
-    geom_point(color_aes, alpha = 0.65) +
-    geom_hline( yintercept = -log10(p_cut), linetype   = "dashed", color = "gray50") +
+    geom_point(color_aes, alpha = 0.65)
+  
+  if(reverse_legend){
+    p <- p + guides(color = guide_legend(reverse = TRUE))
+  }
+  
+  p <- p +  geom_hline( yintercept = -log10(p_cut), linetype   = "dashed", color = "gray50") +
     geom_vline( xintercept = c(fc_cut,-fc_cut), linetype   = "dashed", color = "gray50") +
     geom_vline( xintercept = 0, linetype   = "dashed", color = "gray50",alpha = 0.5) +
     # scale_color_manual(
@@ -1293,9 +1322,10 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
       panel.grid.minor = element_blank(),  # Remove minor grid lines
       panel.border = element_rect(colour = "black", fill = NA),  # Keep border if desired
       plot.margin = margin(t = 10, r = 15, b = 15, l = 10, unit = "pt"),  # Adjust margins in point
-      axis.text.y.left = element_text(size = 10, face = "italic"),  # Style y-axis labels
-      axis.title.x = element_text(face = "bold"),  # Add margin and bold to x-axis title
-      axis.title.y = element_text(face = "bold")  # Bold y-axis title
+      axis.text.y.left = element_text(size = 12),  # Style y-axis labels
+      axis.text.x.bottom = element_text(size =12)
+      #axis.title.x = element_text(face = "bold"),  # Add margin and bold to x-axis title
+      #axis.title.y = element_text(face = "bold")  # Bold y-axis title
     ) +
     legend_theme
   
@@ -1319,6 +1349,24 @@ make_interactive_volcano <- function(comparison_df, group1, group2,
         }
         interactive_plot$x$data[[i]] <- tr
       }
+    }
+    
+    
+    # --- Reverse legend starting from second element only ---
+    if (reverse_legend && length(interactive_plot$x$data) > 1) {
+      # Keep first trace as is
+      first_trace <- interactive_plot$x$data[[1]]
+      rest_traces <- interactive_plot$x$data[-1]
+      
+      n <- length(rest_traces)
+      
+      # Assign legendrank to reverse legend order, without touching trace order
+      for (i in seq_along(rest_traces)) {
+        rest_traces[[i]]$legendrank <- n - i + 1
+      }
+      
+      # Put everything back together
+      interactive_plot$x$data <- c(list(first_trace), rest_traces)
     }
     
     return(

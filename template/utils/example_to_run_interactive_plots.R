@@ -9,13 +9,17 @@ source("../phipseq_report-generator/template/utils/make_interactive_plots.R")
 # Define the size and group 1 and group 2 name
 N1 <- 63
 N2 <- 156
-group1 <- "control"
-group2 <- "disease"
+group1 <- "control_healty"
+group2 <- "SNMG_no_col"
 
 # Prepare data -----
 # Load table with significant peptides group
-comparison_df <- read.csv(paste("../IBD-Chile/reports_agilent/Tables/table_peptidesSignificance_group_test_", group1,"_vs_", group2,".csv", sep=""))
-#  Define the rules for custom grouping if you want to include taxa from different lineages in one column
+comparison_df <- read.csv(paste("../SNMG//reports//Tables/table_peptidesSignificance_group_test_", group1,"_vs_", group2,".csv", sep=""))
+
+
+#########################################
+#  Only run if you want to define the rules for custom grouping if you want to include taxa from different lineages in one column
+########################################
 my_custom_rules <- data.frame(
   lineage_col = c("genus", "genus"),
   taxa_name = c("Bacteroides", "Enterovirus"),
@@ -26,7 +30,9 @@ comparison_df_custom <- create_flexible_taxa_column(
   default_lineage_col = "species", # Default is species level
   custom_rules = my_custom_rules,
   new_col_name = "newTaxaCol")
-#  Run statistical analysis using a lineage column
+#######################################
+
+#  Run statistical analysis using a lineage column (can be species, order or the new generated taxa col)
 pvals_df <- get_top_significant_taxa_df(
   comparison_df = comparison_df_custom,
   lineage_col = "newTaxaCol" # <--- here provide lineage col (e.g. species, order, genus or a new custom taxa column)
@@ -36,6 +42,7 @@ pvals_df <- get_top_significant_taxa_df(
 #############
 # groups and patterns to find that group
 flags_to_patterns <- list(
+  Bos = c("Bos taurus"),
   #`Milk allergens` = c("twist_25139", "twist_43321", "twist_25139", "twist_5555", "twist_54532"),
   CMV = c("Cytomegalovirus humanbeta5"),
   Enterovirus = c("Enterovirus"),
@@ -45,7 +52,7 @@ flags_to_patterns <- list(
 flags <- c(names(flags_to_patterns)) # no extra annotation
 taxa_to_plot <- unlist(flags_to_patterns)
 pvals_taxa <- pvals_df[pvals_df[,1] %in% taxa_to_plot,]$p.adj
-col_taxa <- c(CMV = "dodgerblue3", Enterovirus="#d95f02", Bacteroides="forestgreen")
+col_taxa <- c(Bos = "purple", CMV = "dodgerblue3", Enterovirus="#d95f02", Bacteroides="forestgreen")
 
 # flags_list <- make_flag_lists(pvals_df,
 #                               #n = 5,
@@ -117,6 +124,7 @@ for(flag in flags){
 # Call functions----
 
 # Interactive mode
+source("../phipseq_report-generator/template/utils/make_interactive_plots.R")
 make_interactive_scatterplot(comparison_df = comparison_df,
                              group1 = group1, group2 = group2, N = c(N1,N2),
                              highlight_cols   = flags, 
@@ -132,14 +140,23 @@ make_interactive_scatterplot(comparison_df = comparison_df,
                              interactive = T)
 
 
-# No interactive mode
 make_interactive_scatterplot(comparison_df = comparison_df,
                              group1 = group1, group2 = group2, N = c(N1,N2),
-                             highlight_cols   = flags, 
-                             highlight_colors = col_taxa,
-                             pvals_adj = pvals_taxa,
+                             highlight_cols   = (flags), 
+                             highlight_colors = (col_taxa),
+                             reverse_legend = F,
+                             pvals_adj = (pvals_taxa),
                              default_color    = "gray70", 
                              interactive = F)
+
+make_interactive_scatterplot(comparison_df = comparison_df,
+                             group1 = group1, group2 = group2, N = c(N1,N2),
+                             highlight_cols   = (flags), 
+                             highlight_colors = (col_taxa),
+                             reverse_legend = F,
+                             pvals_adj = (pvals_taxa),
+                             default_color    = "gray70", 
+                             interactive = T)
 
 # Show significance
 make_interactive_scatterplot(comparison_df = comparison_df,

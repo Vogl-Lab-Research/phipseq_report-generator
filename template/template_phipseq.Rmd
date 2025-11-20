@@ -415,10 +415,11 @@ for(rank_level in rank_levels) {
             
       p <- make_interactive_scatterplot(comparison_df = comparison_df,
                                group1 = group1, group2 = group2, N = c(N1,N2),
-                               highlight_cols   = flags, 
+                               highlight_cols   = rev(flags), 
+                               reverse_legend = T,
                                #highlight_colors = c(Bacteriodales = "#1b9e77", Enterovirus = "#7570b3"),
-                               highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags],
-                               pvals_adj = significant_taxa_list[[rank_level]][[comp_name]]$p.adj[1:n_flags],
+                               highlight_colors = rev(significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags]),
+                               pvals_adj = rev(significant_taxa_list[[rank_level]][[comp_name]]$p.adj[1:n_flags]),
                                default_color    = "gray80", 
                                interactive = T)
       scatter_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
@@ -491,9 +492,10 @@ for(rank_level in rank_levels) {
       # valid_colors <- significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[valid_flags]
       p <- make_interactive_volcano(comparison_df = comparison_df,
                                group1 = group1, group2 = group2, fc_cut = 1, p_cut = 0.05,
-                               highlight_cols   = flags,  
-                               highlight_colors = significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags],
-                               pvals_adj = significant_taxa_list[[rank_level]][[comp_name]]$p.adj[1:n_flags],
+                               highlight_cols   = rev(flags),  
+                               highlight_colors = rev(significant_taxa_list[[rank_level]][[comp_name]]$highlight_colors[1:n_flags]),
+                               pvals_adj = rev(significant_taxa_list[[rank_level]][[comp_name]]$p.adj[1:n_flags]),
+                               reverse_legend = T,
                                default_color    = "gray80", 
                                interactive = T)
       volcano_plots[[paste0(group1, "_vs_", group2,"-",flag)]] <- list(plot = p)
